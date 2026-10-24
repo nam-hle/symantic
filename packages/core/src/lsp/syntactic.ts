@@ -3,7 +3,7 @@
  * (imports, outline detail, function bodies, reference-kind classification). Parses a
  * single file; no project, no typecheck.
  */
-import ts from "typescript";
+import { ts } from "ts-morph";
 
 import { NS_SEP } from "../resolve.js";
 import type { LspPosition } from "./protocol.js";
