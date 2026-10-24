@@ -27,10 +27,9 @@
 		"dist"
 	],
 	"dependencies": {
-		"ts-morph": "^28.0.0",
-		"typescript": "^6.0.3"
+		"ts-morph": "^28.0.0"
 	},
 	"optionalDependencies": {
-		"@typescript/native-preview": "7.0.0-dev.20260606.1"
+		"typescript": "^7.0.2"
 	}
 }

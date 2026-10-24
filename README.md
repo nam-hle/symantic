@@ -165,10 +165,10 @@ pass `engine: "lsp"` for the tsgo backend, or `json: true` for structured output
 
 Add `--engine lsp` to any CLI command to use the tsgo-backed engine instead of the ts-morph default.
 
-> It needs `@typescript/native-preview` (tsgo), declared as an _optional_ dependency — the default
-> ts-morph engine pulls no native binary. tsgo ships per-platform preview builds; if it's absent or
-> unavailable for your platform (e.g. Alpine/musl), `--engine lsp` errors with an install hint while
-> the default engine keeps working.
+> It needs `typescript@^7` (the native `tsc --lsp` server), declared as an _optional_ dependency — the
+> default ts-morph engine runs on the TypeScript bundled in ts-morph and pulls no native binary. If
+> TypeScript 7 is absent or unavailable for your platform, `--engine lsp` errors with an install hint
+> while the default engine keeps working.
 
 ## Warm daemon (CLI performance)
 

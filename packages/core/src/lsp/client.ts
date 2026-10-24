@@ -38,7 +38,7 @@ export class LspClient {
 		const bin = tsgoBinPath();
 
 		if (bin === undefined) {
-			throw new Error("tsgo not found — install @typescript/native-preview to use the LSP engine");
+			throw new Error("TypeScript 7 not found — install typescript@^7 to use the LSP engine");
 		}
 
 		const child = spawn(process.execPath, [bin, "--lsp", "--stdio"], { cwd: this.root });

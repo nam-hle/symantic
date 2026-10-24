@@ -109,9 +109,10 @@ DESIGN). The analysis engine sits behind `resolveSymbol` / `findUsages` and is s
   TypeScript compiler (`typescript-go`), faster on the hot path, driven over LSP. It is the
   cold-start / perf escape hatch: same compiler-accurate semantics, native speed. Wired behind
   the same core interface and selectable today via `--engine lsp` (CLI) / `engine: "lsp"` (MCP),
-  with `@typescript/native-preview` as an _optional_ dependency. Still preview-grade — the
-  ts-morph engine stays the default until tsgo's embeddable API stabilizes; parity gaps fall
-  back to the default. Endgame: tsgo as the default once it GAs with a stable API.
+  with `typescript@^7` (`tsc --lsp`) as an _optional_ dependency. TypeScript 7 is GA, but its
+  embeddable JS API is still `unstable/*` — the ts-morph engine stays the default (it bundles
+  TypeScript 6.0); parity gaps fall back to the default. Endgame: tsgo as the default once that
+  API is stable.
 - **Not Rust.** The Rust semantic-typechecker tier is not viable: STC (the tsc-compatible Rust
   checker) is **archived/abandoned** (2025); Ezno / tsz are research-grade, not at tsc parity.
   Rust TS tooling (SWC, oxc, ast-grep) is **syntactic only** — fast AST, no type-aware refs —
