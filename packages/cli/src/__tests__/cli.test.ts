@@ -2,7 +2,6 @@ import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { join, dirname } from "node:path";
-import { createRequire } from "node:module";
 /**
  * Integration tests for the symantic CLI adapter.
  *
@@ -15,6 +14,8 @@ import { mkdtempSync, readFileSync } from "node:fs";
 
 import { it, expect, describe } from "vitest";
 
+import { tsgoBinPath } from "../../../core/src/lsp/tsgo-bin.js";
+
 const execFileAsync = promisify(execFile);
 
 const __filename = fileURLToPath(import.meta.url);
@@ -26,17 +27,9 @@ const CLI_BIN = join(__dirname, "..", "..", "dist", "index.js");
 /** Absolute path to the sample fixture tsconfig. */
 const TSCONFIG = join(__dirname, "..", "..", "..", "core", "src", "__tests__", "fixtures", "sample", "tsconfig.json");
 
-/** Check whether the tsgo binary is available for LSP engine tests. */
+/** Check whether the TypeScript 7 LSP launcher is available for LSP engine tests. */
 function tsgoBinAvailable(): boolean {
-	const require = createRequire(import.meta.url);
-
-	try {
-		require.resolve("@typescript/native-preview/package.json");
-
-		return true;
-	} catch {
-		return false;
-	}
+	return tsgoBinPath() !== undefined;
 }
 
 /** Run the CLI with the given args (optionally from `cwd`), returning stdout, stderr, exit code. */

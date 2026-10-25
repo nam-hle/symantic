@@ -7,7 +7,7 @@ import { resolve as resolvePath } from "node:path";
  */
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 
-import ts from "typescript";
+import { ts } from "ts-morph";
 
 import { shortKind } from "./render.js";
 import { LspClient } from "./lsp/client.js";
