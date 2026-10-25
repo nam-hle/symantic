@@ -109,7 +109,7 @@ DESIGN). The analysis engine sits behind `resolveSymbol` / `findUsages` and is s
   TypeScript compiler (`typescript-go`), faster on the hot path, driven over LSP. It is the
   cold-start / perf escape hatch: same compiler-accurate semantics, native speed. Wired behind
   the same core interface and selectable today via `--engine lsp` (CLI) / `engine: "lsp"` (MCP),
-  with `typescript@^7` (`tsc --lsp`) as an _optional_ dependency. TypeScript 7 is GA, but its
+  with `@typescript/native` (`npm:typescript@^7`, `tsc --lsp`) as an _optional_ dependency. TypeScript 7 is GA, but its
   embeddable JS API is still `unstable/*` — the ts-morph engine stays the default (it bundles
   TypeScript 6.0); parity gaps fall back to the default. Endgame: tsgo as the default once that
   API is stable.

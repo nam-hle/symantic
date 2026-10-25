@@ -1,9 +1,5 @@
 import { tasks, ExecTask, DeleteTask } from "nadle";
 
-// tsc 7 (native) comes from the `typescript7` alias; `typescript` stays on 6 because typescript-eslint
-// needs the JS compiler API that 7 does not ship.
-const TSC = "node_modules/typescript7/bin/tsc";
-
 // --- Building ---
 //
 // `emit` runs tsc -b over the project references: it type-checks and emits every
@@ -11,12 +7,12 @@ const TSC = "node_modules/typescript7/bin/tsc";
 // covers test files (excluded from the emit). `bundle` then re-emits the cli/mcp
 // bins as single files via tsup. `build` ties the three together.
 
-tasks.register("emit", ExecTask, { command: TSC, args: ["-b"] }).config({
+tasks.register("emit", ExecTask, { command: "tsc", args: ["-b"] }).config({
 	group: "Building",
 	description: "Type-check and emit every package's src (tsc project references)"
 });
 
-tasks.register("typecheck", ExecTask, { command: TSC, args: ["-p", "tsconfig.check.json", "--noEmit"] }).config({
+tasks.register("typecheck", ExecTask, { command: "tsc", args: ["-p", "tsconfig.check.json", "--noEmit"] }).config({
 	group: "Building",
 	dependsOn: ["emit"],
 	description: "Type-check every package including tests (resolves @symantic/core from its emitted dist)"
