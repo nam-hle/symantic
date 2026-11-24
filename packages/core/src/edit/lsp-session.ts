@@ -119,8 +119,9 @@ export class LspSession {
 		const exited = new Promise<void>((done) => this.#child.once("exit", () => done()));
 
 		try {
-			await this.request("shutdown", null);
-			this.notify("exit", null);
+			// This server rejects `params: null` here; the field must be absent.
+			await this.request("shutdown", undefined);
+			this.notify("exit", undefined);
 		} catch {
 			// a dead or stuck server is killed below
 		}
