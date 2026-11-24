@@ -212,7 +212,7 @@ Requires Node.js 24+ and pnpm. Task runner: [nadle](https://nadle.dev).
 pnpm install
 pnpm nadle build         # tsc project references + bundle
 pnpm nadle test          # vitest
-pnpm nadle check         # eslint + prettier
+pnpm nadle check         # oxlint + oxfmt
 pnpm nadle --list        # all tasks
 ```
 

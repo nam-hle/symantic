@@ -45,7 +45,7 @@ export async function runDaemonServer(options: DaemonServerOptions): Promise<voi
 				// best-effort cleanup
 			}
 
-			// eslint-disable-next-line n/no-process-exit -- daemon shutdown: open client sockets must not keep the process alive
+			// oxlint-disable-next-line unicorn/no-process-exit -- daemon shutdown: open client sockets must not keep the process alive
 			process.exit(0);
 		});
 	};
