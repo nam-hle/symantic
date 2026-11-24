@@ -1,24 +1,21 @@
 /**
- * Engine selection + the sync→async bridge. CLI and MCP consume an `AsyncSymbolEngine` so a
- * single `await`-everything code path works for either backend: the sync ts-morph `Engine`
- * (default) wrapped here, or the natively-async tsgo `LspEngine`.
+ * Engine construction + the sync→async bridge. CLI and MCP consume an `AsyncSymbolEngine` so a
+ * single `await`-everything code path works; the engine itself is synchronous.
  */
 import { Engine } from "./engine.js";
-import { LspEngine } from "./lsp-engine.js";
 import type { SymbolEngine, AsyncSymbolEngine } from "./symbol-engine.js";
 
-export type EngineKind = "tsmorph" | "lsp";
-
 export interface CreateEngineOptions {
-	/** Which backend to use. Defaults to the ts-morph engine. */
-	engine?: EngineKind;
 	tsConfigPath: string;
 }
 
+/** A synchronous engine, optionally owning resources `dispose` releases. */
+type DisposableSymbolEngine = SymbolEngine & { dispose?: () => void };
+
 /** Wrap a synchronous SymbolEngine as an AsyncSymbolEngine (results resolved immediately). */
-export function asAsync(engine: SymbolEngine): AsyncSymbolEngine {
+export function asAsync(engine: DisposableSymbolEngine): AsyncSymbolEngine {
 	return {
-		dispose: () => Promise.resolve(),
+		dispose: () => Promise.resolve(engine.dispose?.()),
 		refreshIfStale: () => Promise.resolve(engine.refreshIfStale()),
 		outlineFile: (path) => Promise.resolve(engine.outlineFile(path)),
 		sourceFileCount: () => Promise.resolve(engine.sourceFileCount()),
@@ -40,17 +37,7 @@ export function asAsync(engine: SymbolEngine): AsyncSymbolEngine {
 	};
 }
 
-/** Create the selected engine as an AsyncSymbolEngine. ts-morph is the default. */
+/** Create the engine over a tsconfig as an AsyncSymbolEngine. */
 export function createEngine(options: CreateEngineOptions): AsyncSymbolEngine {
-	const kind = options.engine ?? "tsmorph";
-
-	if (kind === "tsmorph") {
-		return asAsync(new Engine({ tsConfigPath: options.tsConfigPath }));
-	}
-
-	if (kind === "lsp") {
-		return new LspEngine({ tsConfigPath: options.tsConfigPath });
-	}
-
-	throw new Error(`unknown engine: ${String(kind)} (expected "tsmorph" or "lsp")`);
+	return asAsync(new Engine({ tsConfigPath: options.tsConfigPath }));
 }

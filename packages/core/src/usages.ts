@@ -1,28 +1,30 @@
 /**
- * Reference classification for findUsages. Maps a ts-morph reference node to a
- * ReferenceKind by inspecting its syntactic context. Deterministic, no LLM.
+ * Reference classification for findUsages. Maps a reference node to a ReferenceKind by
+ * inspecting its syntactic context. Deterministic, no LLM.
  */
-import { Node, SyntaxKind } from "ts-morph";
+import type { Node } from "typescript/ast";
+import { SyntaxKind, isNewExpression, isCallExpression, isBinaryExpression, isExportDeclaration, isPropertyAccessExpression } from "typescript/ast";
 
+import { ancestorOfKind } from "./nodes.js";
 import type { ReferenceKind } from "./types.js";
 
 export function classifyReference(node: Node): ReferenceKind {
 	// `export { X } from "..."` — a barrel re-export, distinct from a consuming import.
-	const exportSpecifier = node.getFirstAncestorByKind(SyntaxKind.ExportSpecifier);
+	const exportSpecifier = ancestorOfKind(node, SyntaxKind.ExportSpecifier);
 
 	if (exportSpecifier !== undefined) {
-		const exportDecl = exportSpecifier.getFirstAncestorByKind(SyntaxKind.ExportDeclaration);
+		const exportDecl = ancestorOfKind(exportSpecifier, SyntaxKind.ExportDeclaration);
 
-		if (exportDecl !== undefined && Node.isExportDeclaration(exportDecl) && exportDecl.getModuleSpecifierValue() !== undefined) {
+		if (exportDecl !== undefined && isExportDeclaration(exportDecl) && exportDecl.moduleSpecifier !== undefined) {
 			return "re-export";
 		}
 	}
 
-	if (node.getFirstAncestorByKind(SyntaxKind.ImportSpecifier) !== undefined) {
-		return "import";
-	}
-
-	if (node.getFirstAncestorByKind(SyntaxKind.ImportClause) !== undefined || node.getFirstAncestorByKind(SyntaxKind.NamespaceImport) !== undefined) {
+	if (
+		ancestorOfKind(node, SyntaxKind.ImportSpecifier) !== undefined ||
+		ancestorOfKind(node, SyntaxKind.ImportClause) !== undefined ||
+		ancestorOfKind(node, SyntaxKind.NamespaceImport) !== undefined
+	) {
 		return "import";
 	}
 
@@ -42,44 +44,25 @@ export function classifyReference(node: Node): ReferenceKind {
 }
 
 function isCallTarget(node: Node): boolean {
-	let parent = node.getParent();
+	let target = node;
+	let parent = node.parent;
 
 	// For a qualified call `A.b()`, the node is the property-access name; step up to
 	// the property-access so the call/new check below sees it as the call expression.
-	if (parent !== undefined && Node.isPropertyAccessExpression(parent) && parent.getNameNode() === node) {
-		node = parent;
-		parent = parent.getParent();
+	if (isPropertyAccessExpression(parent) && parent.name === node) {
+		target = parent;
+		parent = parent.parent;
 	}
 
-	if (parent === undefined) {
-		return false;
-	}
-
-	if (Node.isCallExpression(parent) && parent.getExpression() === node) {
-		return true;
-	}
-
-	if (Node.isNewExpression(parent) && parent.getExpression() === node) {
-		return true;
-	}
-
-	return false;
+	return (isCallExpression(parent) || isNewExpression(parent)) && parent.expression === target;
 }
 
 function isInTypePosition(node: Node): boolean {
-	return node.getFirstAncestorByKind(SyntaxKind.TypeReference) !== undefined || node.getFirstAncestorByKind(SyntaxKind.TypeQuery) !== undefined;
+	return ancestorOfKind(node, SyntaxKind.TypeReference) !== undefined || ancestorOfKind(node, SyntaxKind.TypeQuery) !== undefined;
 }
 
 function isWriteTarget(node: Node): boolean {
-	const parent = node.getParent();
+	const parent = node.parent;
 
-	if (parent === undefined) {
-		return false;
-	}
-
-	if (Node.isBinaryExpression(parent) && parent.getLeft() === node) {
-		return parent.getOperatorToken().getText() === "=";
-	}
-
-	return false;
+	return isBinaryExpression(parent) && parent.left === node && parent.operatorToken.kind === SyntaxKind.EqualsToken;
 }

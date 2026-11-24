@@ -1,16 +1,30 @@
-import { Project, SyntaxKind } from "ts-morph";
-import { test, expect, describe } from "vitest";
+import { API } from "typescript/sync";
+import type { Node } from "typescript/ast";
+import { isIdentifier } from "typescript/ast";
+import { it, test, expect, afterAll, describe } from "vitest";
 
+import { forEachDescendant } from "../nodes.js";
 import { classifyReference } from "../usages.js";
 import type { ReferenceKind } from "../index.js";
 import { CLASSIFY_CORPUS } from "./fixtures/classify-corpus.js";
 
-/** Build a one-file project and return identifiers matching `name`. */
-function identifiers(code: string, name: string) {
-	const project = new Project({ useInMemoryFileSystem: true });
-	const sf = project.createSourceFile("t.ts", code);
+const api = new API({ cwd: process.cwd() });
 
-	return sf.getDescendantsOfKind(SyntaxKind.Identifier).filter((id) => id.getText() === name);
+afterAll(() => {
+	api.close();
+});
+
+/** Parse one in-memory file and return the identifiers named `name`, in source order. */
+function identifiers(code: string, name: string): Node[] {
+	const retained = api.createSourceFile("/virtual/t.ts", code);
+	const found: Node[] = [];
+	forEachDescendant(retained.sourceFile, (node) => {
+		if (isIdentifier(node) && node.text === name) {
+			found.push(node);
+		}
+	});
+
+	return found;
 }
 
 function kindsOf(code: string, name: string): ReferenceKind[] {
@@ -54,11 +68,9 @@ describe("classifyReference", () => {
 		expect(kindsOf(`let x = 1; const y = x + 1;`, "x")).toContain("read");
 	});
 
-	// The shared corpus both engines must satisfy (the LSP side runs it in
-	// lsp/classify-parity.test.ts). Keeps the two classify impls from drifting.
-	describe("shared corpus (ts-morph)", () => {
+	describe("shared corpus", () => {
 		for (const { code, name, expected, occurrence } of CLASSIFY_CORPUS) {
-			test(`${expected}: ${code}`, () => {
+			it(`${expected}: ${code}`, () => {
 				const node = identifiers(code, name)[occurrence];
 				expect(node).toBeDefined();
 				expect(classifyReference(node!)).toBe(expected);

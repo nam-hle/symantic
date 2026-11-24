@@ -7,8 +7,13 @@ import { test, expect, describe, afterEach } from "vitest";
 import { Engine } from "../index.js";
 
 const dirs: string[] = [];
+const engines: Engine[] = [];
 
 afterEach(() => {
+	for (const engine of engines.splice(0)) {
+		engine.dispose();
+	}
+
 	for (const dir of dirs.splice(0)) {
 		rmSync(dir, { force: true, recursive: true });
 	}
@@ -27,6 +32,7 @@ describe("refreshIfStale", () => {
 	test("picks up an out-of-band edit before answering", () => {
 		const { dir, tsConfigPath } = makeProject();
 		const engine = new Engine({ tsConfigPath });
+		engines.push(engine);
 
 		const before = engine.resolveSymbol("a.ts:value");
 		expect(before.kind).toBe("symbol");

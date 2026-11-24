@@ -1,15 +1,19 @@
 import { fileURLToPath } from "node:url";
 
-import { test, expect, describe } from "vitest";
+import { test, expect, describe, afterAll } from "vitest";
 
 import { Engine } from "../index.js";
 
 const tsConfigPath = fileURLToPath(new URL("./fixtures/sample/tsconfig.json", import.meta.url));
 
+const engine = new Engine({ tsConfigPath });
+
+afterAll(() => {
+	engine.dispose();
+});
+
 describe("usageReport", () => {
 	test("reports each public symbol of an entry with reference counts", () => {
-		const engine = new Engine({ tsConfigPath });
-
 		const report = engine.usageReport("src/shapes.ts");
 		const byName = new Map(report.map((e) => [e.qualifiedName.split(":").pop(), e]));
 
@@ -21,8 +25,6 @@ describe("usageReport", () => {
 	});
 
 	test("members:true also reports class/interface member ref counts (#119)", () => {
-		const engine = new Engine({ tsConfigPath });
-
 		const topLevel = engine.usageReport("src/shapes.ts").map((e) => e.qualifiedName);
 		const withMembers = engine.usageReport("src/shapes.ts", { members: true }).map((e) => e.qualifiedName);
 
@@ -34,11 +36,15 @@ describe("usageReport", () => {
 	});
 
 	test("excludeTests drops test-file references from the counts", () => {
-		const engine = new Engine({ tsConfigPath });
-
 		const withTests = engine.usageReport("src/shapes.ts").find((e) => e.qualifiedName.endsWith(":makeCircle"));
 		const noTests = engine.usageReport("src/shapes.ts", { excludeTests: true }).find((e) => e.qualifiedName.endsWith(":makeCircle"));
 
 		expect(noTests!.total).toBeLessThan(withTests!.total);
+	});
+
+	test("counts neither the declaration nor its own name as a use", () => {
+		const unused = engine.usageReport("src/tags.ts").find((e) => e.qualifiedName.endsWith(":freshFn"));
+
+		expect(unused).toMatchObject({ total: 0, consumed: 0 });
 	});
 });

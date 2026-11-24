@@ -2,7 +2,7 @@ import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { connect, type Socket } from "node:net";
 
-import type { EngineKind, AsyncSymbolEngine } from "@symantic/core";
+import type { AsyncSymbolEngine } from "@symantic/core";
 
 import { daemonPaths } from "./paths.js";
 
@@ -82,9 +82,9 @@ function connectOnce(socketPath: string): Promise<DaemonConnection | undefined> 
 	});
 }
 
-function spawnDaemon(tsConfigPath: string, engineKind: EngineKind): void {
+function spawnDaemon(tsConfigPath: string): void {
 	const bin = fileURLToPath(import.meta.url);
-	const child = spawn(process.execPath, [bin, "_daemon", "--tsconfig", tsConfigPath, "--engine", engineKind], {
+	const child = spawn(process.execPath, [bin, "_daemon", "--tsconfig", tsConfigPath], {
 		detached: true,
 		stdio: "ignore",
 		env: process.env
@@ -96,20 +96,20 @@ const sleep = (ms: number): Promise<void> => new Promise((res) => setTimeout(res
 
 /**
  * An AsyncSymbolEngine served by a background daemon (issue #113): connect to the daemon for
- * this (tsconfig, engine kind, version), spawning it on first use, and proxy every engine
+ * this (tsconfig, version), spawning it on first use, and proxy every engine
  * call over the socket. Returns undefined — caller falls back to an in-process engine — when
  * the daemon is disabled (`SYMANTIC_NO_DAEMON`) or can't be reached in time.
  */
-export async function daemonEngine(tsConfigPath: string, engineKind: EngineKind, version: string): Promise<AsyncSymbolEngine | undefined> {
+export async function daemonEngine(tsConfigPath: string, version: string): Promise<AsyncSymbolEngine | undefined> {
 	if (process.env["SYMANTIC_NO_DAEMON"] !== undefined && process.env["SYMANTIC_NO_DAEMON"] !== "") {
 		return undefined;
 	}
 
-	const paths = daemonPaths(tsConfigPath, engineKind, version);
+	const paths = daemonPaths(tsConfigPath, version);
 	let connection = await connectOnce(paths.socketPath);
 
 	if (connection === undefined) {
-		spawnDaemon(tsConfigPath, engineKind);
+		spawnDaemon(tsConfigPath);
 		const deadline = Date.now() + SPAWN_TIMEOUT_MS;
 
 		while (connection === undefined && Date.now() < deadline) {

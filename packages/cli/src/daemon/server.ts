@@ -2,7 +2,6 @@ import { mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { type Socket, type Server, createServer } from "node:net";
 
 import { createEngine } from "@symantic/core";
-import type { EngineKind } from "@symantic/core";
 
 import { daemonPaths } from "./paths.js";
 
@@ -18,13 +17,12 @@ export interface DaemonServerOptions {
 	/** Exit after this long without a request. Default 10 minutes. */
 	idleMs?: number;
 	tsConfigPath: string;
-	engineKind: EngineKind;
 }
 
 const DEFAULT_IDLE_MS = 10 * 60 * 1000;
 
 /**
- * The daemon process body: hold one warm engine for (tsconfig, engine kind) and answer
+ * The daemon process body: hold one warm engine for (tsconfig) and answer
  * AsyncSymbolEngine calls over a local socket, newline-delimited JSON. Refreshes the
  * project before each call so edits between CLI invocations are seen; recreates the
  * engine once when a file is missing from the warm project (a newly created file).
@@ -32,8 +30,8 @@ const DEFAULT_IDLE_MS = 10 * 60 * 1000;
  */
 export async function runDaemonServer(options: DaemonServerOptions): Promise<void> {
 	const idleMs = options.idleMs ?? DEFAULT_IDLE_MS;
-	const paths = daemonPaths(options.tsConfigPath, options.engineKind, options.version);
-	let engine = createEngine({ engine: options.engineKind, tsConfigPath: options.tsConfigPath });
+	const paths = daemonPaths(options.tsConfigPath, options.version);
+	let engine = createEngine({ tsConfigPath: options.tsConfigPath });
 	// Engine calls are not reentrant — chain them so concurrent clients never interleave.
 	let tail: Promise<unknown> = Promise.resolve();
 
@@ -68,7 +66,7 @@ export async function runDaemonServer(options: DaemonServerOptions): Promise<voi
 			// rebuild once and retry before giving up.
 			if (error instanceof Error && error.message.includes("file not found in project")) {
 				await engine.dispose();
-				engine = createEngine({ engine: options.engineKind, tsConfigPath: options.tsConfigPath });
+				engine = createEngine({ tsConfigPath: options.tsConfigPath });
 				const fresh = engine as unknown as Record<string, (...args: unknown[]) => Promise<unknown>>;
 
 				return fresh[method]!(...params);

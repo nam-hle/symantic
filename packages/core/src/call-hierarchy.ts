@@ -1,53 +1,67 @@
 /**
- * Call-hierarchy traversal — incoming callers or outgoing callees of a symbol,
- * walked to a bounded depth. Deterministic (ts-morph references + definitions).
+ * Call-hierarchy traversal — incoming callers or outgoing callees of a symbol, walked to a
+ * bounded depth. Deterministic: compiler references for callers, resolved call signatures
+ * for callees.
  */
-import { Node } from "ts-morph";
+import type { Node } from "typescript/ast";
+import {
+	SyntaxKind,
+	isArrowFunction,
+	isNewExpression,
+	isCallExpression,
+	isClassDeclaration,
+	isMethodDeclaration,
+	isPropertyAssignment,
+	isFunctionExpression,
+	isPropertyDeclaration,
+	isFunctionDeclaration,
+	isVariableDeclaration
+} from "typescript/ast";
 
 import { position } from "./resolve.js";
 import type { CallNode } from "./types.js";
+import { declName, fileNameOf, firstAncestor, forEachDescendant } from "./nodes.js";
+
+/** What the walk needs from the compiler: uses of a declaration, targets of a call. */
+export interface CallResolver {
+	/** Reference nodes that use a declaration (declaration sites excluded). */
+	usesOf(decl: Node): Node[];
+	/** Declarations a call/new expression resolves to (unfiltered). */
+	targetsOf(call: Node): Node[];
+}
+
+/** What the walk reports against: the base dir for relative positions and the compiler resolver. */
+export interface CallContext {
+	baseDir: string;
+	resolver: CallResolver;
+}
+
+/** Whether a node can carry the name of a function value (`const f = () => {}`, `{ f: () => {} }`). */
+function isNameHolder(node: Node): boolean {
+	return isVariableDeclaration(node) || isPropertyDeclaration(node) || isPropertyAssignment(node) || node.kind === SyntaxKind.PropertySignature;
+}
 
 /** The nearest enclosing function-like declaration of a node (named where possible). */
 function enclosingNamed(node: Node): Node | undefined {
-	for (const a of node.getAncestors()) {
-		if (Node.isFunctionDeclaration(a) || Node.isMethodDeclaration(a)) {
-			return a;
-		}
+	return firstAncestor(node, (a) => isFunctionDeclaration(a) || isMethodDeclaration(a) || isArrowFunction(a) || isFunctionExpression(a));
+}
 
-		// Arrow / function-expression bound to a name: report the name-bearing declaration
-		// (variable, class property, or object-literal property), not the function expression
-		// itself — otherwise the caller reads as "(anonymous)" (#118).
-		if (Node.isArrowFunction(a) || Node.isFunctionExpression(a)) {
-			const parent = a.getParent();
-
-			if (parent !== undefined && (Node.isVariableDeclaration(parent) || Node.isPropertyDeclaration(parent) || Node.isPropertyAssignment(parent))) {
-				return parent;
-			}
-
-			return a;
-		}
+/**
+ * The declaration to report for an enclosing function: arrow / function-expression bound to a
+ * name reports the name-bearing declaration (variable, class property, or object-literal
+ * property), not the function expression itself — otherwise the caller reads "(anonymous)" (#118).
+ */
+function reportable(fn: Node): Node {
+	if ((isArrowFunction(fn) || isFunctionExpression(fn)) && isNameHolder(fn.parent)) {
+		return fn.parent;
 	}
 
-	return undefined;
+	return fn;
 }
 
 /** A name for a node used in the hierarchy (the declaration's name, best effort). */
 function nodeName(node: Node): string {
-	if (Node.hasName(node)) {
-		return node.getName() ?? "(anonymous)";
-	}
-
-	if (Node.isVariableDeclaration(node)) {
-		return node.getName();
-	}
-
-	const parent = node.getParent();
-
-	if (parent !== undefined && Node.isVariableDeclaration(parent)) {
-		return parent.getName();
-	}
-
-	return "(anonymous)";
+	return declName(node) ?? "(anonymous)";
 }
 
 function toNode(decl: Node, baseDir: string): CallNode {
@@ -57,18 +71,21 @@ function toNode(decl: Node, baseDir: string): CallNode {
 }
 
 /** Functions that call `decl` (one level), as their enclosing named declarations. */
-function callersOf(decl: Node): Node[] {
-	if (!Node.isReferenceFindable(decl)) {
-		return [];
-	}
-
+function callersOf(decl: Node, resolver: CallResolver): Node[] {
+	const declKey = identityKey(decl);
 	const callers: Node[] = [];
 
-	for (const ref of decl.findReferencesAsNodes()) {
+	for (const ref of resolver.usesOf(decl)) {
 		const enclosing = enclosingNamed(ref);
 
-		if (enclosing !== undefined && enclosing !== decl) {
-			callers.push(enclosing);
+		if (enclosing === undefined) {
+			continue;
+		}
+
+		const caller = reportable(enclosing);
+
+		if (identityKey(caller) !== declKey) {
+			callers.push(caller);
 		}
 	}
 
@@ -81,53 +98,66 @@ function callersOf(decl: Node): Node[] {
  * code. These are noise as call-hierarchy edges and are filtered out.
  */
 function isExternalDeclaration(decl: Node): boolean {
-	const path = decl.getSourceFile().getFilePath();
+	const path = fileNameOf(decl);
 
 	return path.includes("/node_modules/") || /\/lib\.[^/]*\.d\.ts$/.test(path);
 }
 
+/** Map a resolved call target to the declaration the hierarchy reports, if it is reportable. */
+function calleeDeclaration(target: Node): Node | undefined {
+	if (target.kind === SyntaxKind.Constructor) {
+		return isClassDeclaration(target.parent) ? target.parent : undefined;
+	}
+
+	if (isArrowFunction(target) || isFunctionExpression(target) || target.kind === SyntaxKind.FunctionType) {
+		return isNameHolder(target.parent) ? target.parent : undefined;
+	}
+
+	const reportableKinds = [
+		SyntaxKind.FunctionDeclaration,
+		SyntaxKind.MethodDeclaration,
+		SyntaxKind.MethodSignature,
+		SyntaxKind.GetAccessor,
+		SyntaxKind.SetAccessor,
+		SyntaxKind.ClassDeclaration,
+		SyntaxKind.VariableDeclaration,
+		SyntaxKind.PropertyDeclaration,
+		SyntaxKind.PropertyAssignment,
+		SyntaxKind.PropertySignature
+	];
+
+	return reportableKinds.includes(target.kind) ? target : undefined;
+}
+
 /** Declarations that `decl` calls (one level), resolved from its body's call expressions. */
-function calleesOf(decl: Node): Node[] {
+function calleesOf(decl: Node, resolver: CallResolver): Node[] {
 	const callees: Node[] = [];
 
-	decl.forEachDescendant((node) => {
-		if (!Node.isCallExpression(node) && !Node.isNewExpression(node)) {
+	forEachDescendant(decl, (node) => {
+		if (!isCallExpression(node) && !isNewExpression(node)) {
 			return;
 		}
 
-		const expr = node.getExpression();
-		const target = Node.isPropertyAccessExpression(expr) ? expr.getNameNode() : expr;
+		for (const target of resolver.targetsOf(node)) {
+			const callee = isExternalDeclaration(target) ? undefined : calleeDeclaration(target);
 
-		if (!Node.isIdentifier(target)) {
-			return;
-		}
-
-		for (const def of target.getDefinitionNodes()) {
-			if (isExternalDeclaration(def)) {
-				continue;
+			if (callee !== undefined) {
+				callees.push(callee);
 			}
-
-			const named = Node.isFunctionDeclaration(def) || Node.isMethodDeclaration(def) ? def : (enclosingNamed(def) ?? def);
-			callees.push(named);
 		}
 	});
 
 	return callees;
 }
 
-/** Stable identity for the cycle guard: source position, not the ts-morph wrapper. */
-function positionKey(node: Node): string {
-	const start = node.getStart();
-	const sf = node.getSourceFile();
-	const { line, column } = sf.getLineAndColumnAtPos(start);
-
-	return `${sf.getFilePath()}:${line}:${column}`;
+/** Stable identity for the cycle guard: source position, not the node object. */
+function identityKey(node: Node): string {
+	return `${fileNameOf(node)}:${node.getStart()}`;
 }
 
-export function buildCallHierarchy(decl: Node, direction: "incoming" | "outgoing", depth: number, baseDir: string): CallNode[] {
-	// Key on source position, not Node identity: ts-morph can hand back distinct
-	// wrappers for the same declaration across separate findReferences calls, so an
-	// identity-keyed guard could miss a cycle reachable via two chains and blow up.
+export function buildCallHierarchy(decl: Node, options: { depth: number; direction: "incoming" | "outgoing" }, context: CallContext): CallNode[] {
+	const { depth, direction } = options;
+	const { baseDir, resolver } = context;
 	const seen = new Set<string>();
 
 	const walk = (current: Node, remaining: number): CallNode[] => {
@@ -135,11 +165,11 @@ export function buildCallHierarchy(decl: Node, direction: "incoming" | "outgoing
 			return [];
 		}
 
-		const next = direction === "incoming" ? callersOf(current) : calleesOf(current);
+		const next = direction === "incoming" ? callersOf(current, resolver) : calleesOf(current, resolver);
 		const result: CallNode[] = [];
 
 		for (const node of next) {
-			const key = positionKey(node);
+			const key = identityKey(node);
 
 			if (seen.has(key)) {
 				continue;

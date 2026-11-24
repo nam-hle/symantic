@@ -1,15 +1,19 @@
 import { fileURLToPath } from "node:url";
 
-import { test, expect, describe } from "vitest";
+import { test, expect, describe, afterAll } from "vitest";
 
 import { Engine } from "../index.js";
 
 const tsConfigPath = fileURLToPath(new URL("./fixtures/sample/tsconfig.json", import.meta.url));
 
+const engine = new Engine({ tsConfigPath });
+
+afterAll(() => {
+	engine.dispose();
+});
+
 describe("listImports", () => {
 	test("lists named imports of a file with their module", () => {
-		const engine = new Engine({ tsConfigPath });
-
 		const imports = engine.listImports("src/consumer.ts");
 
 		const shapes = imports.find((i) => /shapes\.js$/.test(i.module));
@@ -19,8 +23,6 @@ describe("listImports", () => {
 	});
 
 	test("returns an empty list for a file with no imports", () => {
-		const engine = new Engine({ tsConfigPath });
-
 		expect(engine.listImports("src/nested.ts")).toEqual([]);
 	});
 });

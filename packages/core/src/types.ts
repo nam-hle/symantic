@@ -10,8 +10,8 @@ export interface Position {
 	line: number;
 }
 
-/** Kind of a reference at a usage site. */
-export type ReferenceKind = "call" | "import" | "re-export" | "type-ref" | "read" | "write";
+/** Kind of a reference at a usage site; `declaration` is the symbol's own declaration name. */
+export type ReferenceKind = "call" | "import" | "re-export" | "type-ref" | "read" | "write" | "declaration";
 
 /** One usage of a symbol. Minimal default record. */
 export interface Reference {
@@ -42,7 +42,7 @@ export type ResolveResult =
 	| { kind: "ambiguous"; candidates: Candidate[] }
 	| { hint?: string; kind: "not-found"; suggestions?: string[] };
 
-/** Opaque handle to a resolved symbol. Shape TBD (wraps ts-morph Symbol). */
+/** Handle to a resolved symbol: its re-feedable qualified name and where it is declared. */
 export interface SymbolHandle {
 	position: Position;
 	qualifiedName: string;
@@ -208,7 +208,7 @@ export interface CallNode {
 export interface ImportInfo {
 	/** Module specifier, e.g. "./shapes.js". */
 	module: string;
-	/** Named imports (their local names). */
+	/** Named imports, by the name the module exports them under (an `as` alias is not shown). */
 	named: string[];
 	/** Default import local name, if any. */
 	default?: string;

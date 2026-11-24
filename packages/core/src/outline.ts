@@ -2,40 +2,61 @@
  * Deterministic structural outline of a file. AST walk, no LLM.
  * See docs/VISION.md (outline ops), docs/DESIGN.md Section 2.
  */
-import { Node } from "ts-morph";
-import type { Statement, SourceFile } from "ts-morph";
+import type { Node, SourceFile } from "typescript/ast";
+import {
+	isBlock,
+	SyntaxKind,
+	isStatement,
+	ModifierFlags,
+	isModuleBlock,
+	isNamedExports,
+	isArrowFunction,
+	isStringLiteral,
+	isClassDeclaration,
+	isModuleDeclaration,
+	isMethodDeclaration,
+	isExportDeclaration,
+	isVariableStatement,
+	isPropertyAssignment,
+	isFunctionExpression,
+	isFunctionDeclaration,
+	isVariableDeclaration,
+	isTypeAliasDeclaration,
+	isInterfaceDeclaration,
+	isObjectLiteralExpression
+} from "typescript/ast";
 
 import { RELEASE_TAGS } from "./types.js";
+import { declName, kindName, childrenOf } from "./nodes.js";
 import type { Member, FileOutline, StatementNode } from "./types.js";
 import { position, joinSegments, outlineDeclarations } from "./resolve.js";
 
-/** Single-line signature: declaration text up to its body (or the whole line). */
-function signatureOf(node: Node): string {
-	const text = node.getText();
-	const brace = text.indexOf("{");
-	const head = brace === -1 ? text : text.slice(0, brace);
+/** The declaration head up to its body — single line, whitespace-collapsed. */
+export function signatureOfSource(source: string): string {
+	const brace = source.indexOf("{");
+	const head = brace === -1 ? source : source.slice(0, brace);
 
 	return head.trim().replace(/\s+/g, " ");
 }
 
 function typeParametersOf(node: Node): string[] | undefined {
-	const holder = Node.isVariableDeclaration(node) ? node.getInitializer() : node;
+	const holder = isVariableDeclaration(node) ? node.initializer : node;
 
 	if (
 		holder === undefined ||
-		!(
-			Node.isClassDeclaration(holder) ||
-			Node.isInterfaceDeclaration(holder) ||
-			Node.isTypeAliasDeclaration(holder) ||
-			Node.isFunctionDeclaration(holder)
-		)
+		!(isClassDeclaration(holder) || isInterfaceDeclaration(holder) || isTypeAliasDeclaration(holder) || isFunctionDeclaration(holder))
 	) {
 		return undefined;
 	}
 
-	const params = holder.getTypeParameters().map((p) => p.getName());
+	const params = (holder.typeParameters ?? []).map((p) => p.name.text);
 
 	return params.length > 0 ? params : undefined;
+}
+
+/** Modifier flags carried by the node itself (variable declarations carry none). */
+function flagsOf(node: Node): ModifierFlags {
+	return (node as { modifierFlags?: ModifierFlags }).modifierFlags ?? ModifierFlags.None;
 }
 
 /**
@@ -43,46 +64,26 @@ function typeParametersOf(node: Node): string[] | undefined {
  * `async`, `optional`, `default`. `export` is tracked separately (Member.exported).
  */
 function modifiersOf(node: Node): string[] {
-	const mods: string[] = [];
+	const flags = flagsOf(node);
+	const optional = (node as { postfixToken?: Node }).postfixToken?.kind === SyntaxKind.QuestionToken;
+	const candidates: [boolean, string][] = [
+		[(flags & ModifierFlags.Abstract) !== 0, "abstract"],
+		[(flags & ModifierFlags.Static) !== 0, "static"],
+		[(flags & ModifierFlags.Readonly) !== 0, "readonly"],
+		[(flags & ModifierFlags.Async) !== 0, "async"],
+		[optional, "optional"],
+		[(flags & ModifierFlags.Default) !== 0, "default"]
+	];
 
-	if (Node.isAbstractable(node) && node.isAbstract()) {
-		mods.push("abstract");
-	}
-
-	if (Node.isStaticable(node) && node.isStatic()) {
-		mods.push("static");
-	}
-
-	if (Node.isReadonlyable(node) && node.isReadonly()) {
-		mods.push("readonly");
-	}
-
-	if (Node.isAsyncable(node) && node.isAsync()) {
-		mods.push("async");
-	}
-
-	if (Node.isQuestionTokenable(node) && node.hasQuestionToken()) {
-		mods.push("optional");
-	}
-
-	if (Node.isModifierable(node) && node.hasModifier("default")) {
-		mods.push("default");
-	}
-
-	return mods;
+	return candidates.filter(([present]) => present).map(([, label]) => label);
 }
 
 /** JSDoc release tags on a node, in RELEASE_TAGS display order. */
 export function tagsOf(node: Node): string[] {
 	// A `const`/`let` declaration carries its JSDoc on the enclosing VariableStatement, not
 	// the VariableDeclaration the outline walk hands us.
-	const docHost = Node.isVariableDeclaration(node) ? (node.getVariableStatement() ?? node) : node;
-
-	if (!Node.isJSDocable(docHost)) {
-		return [];
-	}
-
-	const present = new Set(docHost.getJsDocs().flatMap((doc) => doc.getTags().map((t) => t.getTagName().toLowerCase())));
+	const docHost = isVariableDeclaration(node) && node.parent.parent.kind === SyntaxKind.VariableStatement ? node.parent.parent : node;
+	const present = new Set((docHost.jsDoc ?? []).flatMap((doc) => (doc.tags ?? []).map((tag) => tag.tagName.text.toLowerCase())));
 
 	return RELEASE_TAGS.filter((t) => present.has(t));
 }
@@ -94,9 +95,9 @@ function toMember(node: Node, name: string, baseDir: string): Member {
 
 	return {
 		name,
-		kind: node.getKindName(),
-		signature: signatureOf(node),
+		kind: kindName(node),
 		position: position(node, baseDir),
+		signature: signatureOfSource(node.getText()),
 		...(modifiers.length > 0 ? { modifiers } : {}),
 		...(tags.length > 0 ? { tags } : {}),
 		...(typeParameters !== undefined ? { typeParameters } : {})
@@ -104,27 +105,24 @@ function toMember(node: Node, name: string, baseDir: string): Member {
 }
 
 /** Direct child statements of a statement (into its block/body), one level down. */
-function childStatements(node: Node): Statement[] {
-	const result: Statement[] = [];
-	node.forEachChild((child) => {
-		if (Node.isBlock(child)) {
-			result.push(...child.getStatements());
-		} else if (Node.isStatement(child)) {
-			result.push(child);
+function childStatements(node: Node): Node[] {
+	return childrenOf(node).flatMap((child) => {
+		if (isBlock(child)) {
+			return [...child.statements];
 		}
-	});
 
-	return result;
+		return isStatement(child) ? [child] : [];
+	});
 }
 
 /** The declared name a statement introduces, when it has one (fn/class decl, named var statement). */
 function statementLabel(stmt: Node): string | undefined {
-	if (Node.isFunctionDeclaration(stmt) || Node.isClassDeclaration(stmt)) {
-		return stmt.getName();
+	if (isFunctionDeclaration(stmt) || isClassDeclaration(stmt)) {
+		return stmt.name?.text;
 	}
 
-	if (Node.isVariableStatement(stmt)) {
-		const names = stmt.getDeclarations().map((d) => d.getName());
+	if (isVariableStatement(stmt)) {
+		const names = stmt.declarationList.declarations.map((d) => d.name.getText());
 
 		return names.length > 0 ? names.join(", ") : undefined;
 	}
@@ -133,7 +131,7 @@ function statementLabel(stmt: Node): string | undefined {
 }
 
 function buildStatementNode(stmt: Node, depth: number, baseDir: string): StatementNode {
-	const node: StatementNode = { kind: stmt.getKindName(), position: position(stmt, baseDir) };
+	const node: StatementNode = { kind: kindName(stmt), position: position(stmt, baseDir) };
 	const label = statementLabel(stmt);
 
 	if (label !== undefined) {
@@ -153,20 +151,18 @@ function buildStatementNode(stmt: Node, depth: number, baseDir: string): Stateme
 
 /** Find the body block of a function-like declaration, including arrow/fn-expr consts. */
 function functionBody(decl: Node): Node | undefined {
-	const direct = decl.forEachChildAsArray().find((c) => Node.isBlock(c));
+	const direct = childrenOf(decl).find((c) => isBlock(c));
 
 	if (direct !== undefined) {
 		return direct;
 	}
 
 	// Arrow / function-expression assigned to a const: descend to the initializer's block.
-	if (Node.isVariableDeclaration(decl)) {
-		const init = decl.getInitializer();
+	if (isVariableDeclaration(decl)) {
+		const init = decl.initializer;
 
-		if (init !== undefined && (Node.isArrowFunction(init) || Node.isFunctionExpression(init))) {
-			const body = init.getBody();
-
-			return Node.isBlock(body) ? body : undefined;
+		if (init !== undefined && (isArrowFunction(init) || isFunctionExpression(init))) {
+			return isBlock(init.body) ? init.body : undefined;
 		}
 	}
 
@@ -177,11 +173,22 @@ function functionBody(decl: Node): Node | undefined {
 export function buildFunctionOutline(decl: Node, depth: number, baseDir: string): StatementNode[] {
 	const body = functionBody(decl);
 
-	if (body === undefined || !Node.isBlock(body)) {
+	if (body === undefined || !isBlock(body)) {
 		return [];
 	}
 
-	return body.getStatements().map((stmt) => buildStatementNode(stmt, depth, baseDir));
+	return body.statements.map((stmt) => buildStatementNode(stmt, depth, baseDir));
+}
+
+/** The name a namespace-body statement is addressed by (single-declaration variables included). */
+function namespaceMemberName(stmt: Node): string | undefined {
+	if (isVariableStatement(stmt)) {
+		const [first, ...rest] = stmt.declarationList.declarations;
+
+		return rest.length === 0 && first !== undefined ? declName(first) : undefined;
+	}
+
+	return declName(stmt);
 }
 
 /** Members of a class / interface / namespace declaration. `ownerQualifiedName` (file:Owner)
@@ -190,16 +197,11 @@ export function buildSymbolOutline(decl: Node, baseDir: string, ownerQualifiedNa
 	const withQName = (member: Member, name: string): Member =>
 		ownerQualifiedName === undefined ? member : { ...member, qualifiedName: joinSegments([ownerQualifiedName, name]) };
 
-	if (Node.isModuleDeclaration(decl)) {
-		const body = decl.getBody();
-		const statements = body !== undefined && Node.isModuleBlock(body) ? body.getStatements() : [];
+	if (isModuleDeclaration(decl)) {
+		const statements = decl.body !== undefined && isModuleBlock(decl.body) ? decl.body.statements : [];
 
 		return statements.flatMap((stmt) => {
-			if (!Node.hasName(stmt)) {
-				return [];
-			}
-
-			const name = stmt.getName();
+			const name = namespaceMemberName(stmt);
 
 			return name === undefined ? [] : [withQName(toMember(stmt, name, baseDir), name)];
 		});
@@ -207,72 +209,80 @@ export function buildSymbolOutline(decl: Node, baseDir: string, ownerQualifiedNa
 
 	// An object-literal const (`const x = { foo() {}, bar: () => {} }`) — enumerate its
 	// function-valued properties, mirroring what they're addressable as via `::` (#95).
-	if (Node.isVariableDeclaration(decl)) {
-		const init = decl.getInitializer();
+	if (isVariableDeclaration(decl)) {
+		const init = decl.initializer;
 
-		if (init === undefined || !Node.isObjectLiteralExpression(init)) {
+		if (init === undefined || !isObjectLiteralExpression(init)) {
 			return [];
 		}
 
-		return init.getProperties().flatMap((prop) => {
-			if (Node.isMethodDeclaration(prop)) {
-				const name = prop.getName();
+		return init.properties.flatMap((prop) => {
+			const isFunctionValued =
+				isMethodDeclaration(prop) || (isPropertyAssignment(prop) && (isArrowFunction(prop.initializer) || isFunctionExpression(prop.initializer)));
+			const name = isFunctionValued ? declName(prop) : undefined;
 
-				return name === "" ? [] : [withQName(toMember(prop, name, baseDir), name)];
-			}
-
-			if (Node.isPropertyAssignment(prop)) {
-				const value = prop.getInitializer();
-
-				if (value !== undefined && (Node.isArrowFunction(value) || Node.isFunctionExpression(value))) {
-					const name = prop.getName();
-
-					return name === "" ? [] : [withQName(toMember(prop, name, baseDir), name)];
-				}
-			}
-
-			return [];
+			return name === undefined || name === "" ? [] : [withQName(toMember(prop, name, baseDir), name)];
 		});
 	}
 
-	const members: Node[] = [];
-
-	if (Node.isClassDeclaration(decl)) {
-		members.push(...decl.getMembers());
-	} else if (Node.isInterfaceDeclaration(decl)) {
-		members.push(...decl.getMembers());
-	} else {
+	if (!isClassDeclaration(decl) && !isInterfaceDeclaration(decl)) {
 		return [];
 	}
 
-	return members.map((member) => {
-		const name = Node.hasName(member) ? (member.getName() ?? "") : member.getKindName();
+	return decl.members.map((member) => {
+		const name = declName(member) ?? kindName(member);
 
 		return withQName(toMember(member, name, baseDir), name);
 	});
 }
 
+/** Local names a file exports through `export { a, b as c }` / `export default a` (no `from`). */
+function locallyExportedNames(sourceFile: SourceFile): Set<string> {
+	const names = new Set<string>();
+
+	for (const stmt of sourceFile.statements) {
+		if (isExportDeclaration(stmt) && stmt.moduleSpecifier === undefined && stmt.exportClause !== undefined && isNamedExports(stmt.exportClause)) {
+			for (const spec of stmt.exportClause.elements) {
+				names.add((spec.propertyName ?? spec.name).getText());
+			}
+		}
+	}
+
+	return names;
+}
+
+function isExportedDeclaration(node: Node, localExports: Set<string>): boolean {
+	const holder = isVariableDeclaration(node) ? node.parent.parent : node;
+
+	if ((flagsOf(holder) & ModifierFlags.Export) !== 0) {
+		return true;
+	}
+
+	const name = declName(node);
+
+	return holder.parent.kind === SyntaxKind.SourceFile && name !== undefined && localExports.has(name);
+}
+
 export function buildFileOutline(sourceFile: SourceFile, baseDir: string): FileOutline {
 	const outline: FileOutline = { others: [], exports: [], classes: [], functions: [], variables: [], interfaces: [] };
+	const localExports = locallyExportedNames(sourceFile);
 
 	// outlineDeclarations = top-level + namespaces + type members (no function-body locals).
 	for (const { node, path } of outlineDeclarations(sourceFile)) {
-		// A VariableDeclaration's export modifier lives on its parent VariableStatement.
-		const exportHolder = Node.isVariableDeclaration(node) ? node.getVariableStatement() : node;
-		const exported = exportHolder !== undefined && Node.isExportable(exportHolder) && exportHolder.isExported();
+		const exported = isExportedDeclaration(node, localExports);
 		const base = toMember(node, path, baseDir);
 		const member: Member = { ...base, exported, qualifiedName: `${base.position.file}:${path}` };
 
-		if (Node.isClassDeclaration(node)) {
+		if (isClassDeclaration(node)) {
 			outline.classes.push(member);
-		} else if (Node.isInterfaceDeclaration(node)) {
+		} else if (isInterfaceDeclaration(node)) {
 			outline.interfaces.push(member);
-		} else if (Node.isFunctionDeclaration(node)) {
+		} else if (isFunctionDeclaration(node)) {
 			outline.functions.push(member);
-		} else if (Node.isVariableDeclaration(node)) {
+		} else if (isVariableDeclaration(node)) {
 			// A const assigned a function/arrow reads as a function; everything else is a value.
-			const init = node.getInitializer();
-			const isFn = init !== undefined && (Node.isArrowFunction(init) || Node.isFunctionExpression(init));
+			const init = node.initializer;
+			const isFn = init !== undefined && (isArrowFunction(init) || isFunctionExpression(init));
 			(isFn ? outline.functions : outline.variables).push(member);
 		} else {
 			// Namespaces, enums, type aliases, and type members — still carry export/modifier flags.
@@ -285,14 +295,13 @@ export function buildFileOutline(sourceFile: SourceFile, baseDir: string): FileO
 	}
 
 	// Re-exports: `export { X } from "..."`, `export type { X } from`, `export * from`.
-	for (const exportDecl of sourceFile.getExportDeclarations()) {
-		const fromModule = exportDecl.getModuleSpecifierValue();
-
-		if (fromModule === undefined) {
+	for (const exportDecl of sourceFile.statements) {
+		if (!isExportDeclaration(exportDecl) || exportDecl.moduleSpecifier === undefined || !isStringLiteral(exportDecl.moduleSpecifier)) {
 			continue;
 		}
 
-		const named = exportDecl.getNamedExports();
+		const fromModule = exportDecl.moduleSpecifier.text;
+		const named = exportDecl.exportClause !== undefined && isNamedExports(exportDecl.exportClause) ? exportDecl.exportClause.elements : [];
 
 		if (named.length === 0) {
 			outline.exports.push({
@@ -304,14 +313,12 @@ export function buildFileOutline(sourceFile: SourceFile, baseDir: string): FileO
 			continue;
 		}
 
-		const declTypeOnly = exportDecl.isTypeOnly();
-
 		for (const spec of named) {
-			const typeOnly = declTypeOnly || spec.isTypeOnly();
+			const typeOnly = exportDecl.isTypeOnly || spec.isTypeOnly;
 
 			outline.exports.push({
+				name: spec.name.getText(),
 				position: position(spec, baseDir),
-				name: spec.getAliasNode()?.getText() ?? spec.getName(),
 				kind: typeOnly ? "ExportSpecifier (type)" : "ExportSpecifier",
 				signature: `export { ${spec.getText()} } from "${fromModule}"`
 			});

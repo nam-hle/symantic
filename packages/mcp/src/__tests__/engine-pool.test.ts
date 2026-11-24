@@ -40,18 +40,18 @@ describe("EnginePool", () => {
 	it("reuses the warm engine for the same key", () => {
 		const { p, created } = pool(4);
 
-		p.engineFor("/proj/tsconfig.json", "tsmorph");
-		p.engineFor("/proj/tsconfig.json", "tsmorph");
+		p.engineFor("/proj/tsconfig.json");
+		p.engineFor("/proj/tsconfig.json");
 
 		expect(created.length).toBe(1);
 		expect(p.size).toBe(1);
 	});
 
-	it("keys by engine kind — tsmorph and lsp are distinct engines", () => {
+	it("keys by tsconfig — two projects are distinct engines", () => {
 		const { p, created } = pool(4);
 
-		p.engineFor("/proj/tsconfig.json", "tsmorph");
-		p.engineFor("/proj/tsconfig.json", "lsp");
+		p.engineFor("/proj/tsconfig.json");
+		p.engineFor("/other/tsconfig.json");
 
 		expect(created.length).toBe(2);
 		expect(p.size).toBe(2);
@@ -60,10 +60,10 @@ describe("EnginePool", () => {
 	it("evicts and disposes the least-recently-used engine beyond the cap", () => {
 		const { p, created } = pool(2);
 
-		p.engineFor("/a/tsconfig.json", "tsmorph"); // created[0]
-		p.engineFor("/b/tsconfig.json", "tsmorph"); // created[1]
-		p.engineFor("/a/tsconfig.json", "tsmorph"); // touch a → a is now MRU, b is LRU
-		p.engineFor("/c/tsconfig.json", "tsmorph"); // created[2] → evicts b (LRU)
+		p.engineFor("/a/tsconfig.json"); // created[0]
+		p.engineFor("/b/tsconfig.json"); // created[1]
+		p.engineFor("/a/tsconfig.json"); // touch a → a is now MRU, b is LRU
+		p.engineFor("/c/tsconfig.json"); // created[2] → evicts b (LRU)
 
 		expect(p.size).toBe(2);
 		expect(created[1]!.disposed).toBe(true); // b evicted + disposed
@@ -74,7 +74,7 @@ describe("EnginePool", () => {
 	it("throws a path-named error when the tsconfig does not exist", () => {
 		const p = new EnginePool({ exists: () => false, createEngine: () => makeFake() });
 
-		expect(() => p.engineFor("/missing/tsconfig.json", "tsmorph")).toThrow(/tsConfig not found.*\/missing\/tsconfig\.json/);
+		expect(() => p.engineFor("/missing/tsconfig.json")).toThrow(/tsConfig not found.*\/missing\/tsconfig\.json/);
 	});
 
 	it("serializes concurrent query calls on one engine (no interleave)", async () => {
@@ -94,7 +94,7 @@ describe("EnginePool", () => {
 			createEngine: () => ({ resolveSymbol: slow, dispose: () => Promise.resolve() }) as unknown as AsyncSymbolEngine
 		});
 
-		const e = p.engineFor("/proj/tsconfig.json", "tsmorph");
+		const e = p.engineFor("/proj/tsconfig.json");
 		await Promise.all([e.resolveSymbol("x"), e.resolveSymbol("y"), e.resolveSymbol("z")]);
 
 		expect(peak).toBe(1); // never more than one in flight on the same engine
@@ -103,8 +103,8 @@ describe("EnginePool", () => {
 	it("disposeAll releases every warm engine and empties the pool", async () => {
 		const { p, created } = pool(4);
 
-		p.engineFor("/a/tsconfig.json", "tsmorph");
-		p.engineFor("/b/tsconfig.json", "tsmorph");
+		p.engineFor("/a/tsconfig.json");
+		p.engineFor("/b/tsconfig.json");
 		await p.disposeAll();
 
 		expect(p.size).toBe(0);

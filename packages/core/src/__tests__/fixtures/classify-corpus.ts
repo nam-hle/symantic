@@ -1,15 +1,11 @@
 import type { ReferenceKind } from "../../types.js";
 
 /**
- * Shared reference-classification corpus. Both engines classify references — ts-morph's
- * `classifyReference` (over ts-morph nodes) and the LSP layer's `classify`/`classifyAt`
- * (over raw `typescript` nodes). They re-derive the same decision logic, so they drift.
- * This corpus is run through BOTH (see classify.test.ts + classify-parity.test.ts) so any
- * divergence is caught by tests, even while the two impls remain separate.
+ * Reference-classification corpus: one case per kind of reference site (see classify.test.ts).
  *
  * `name` is the identifier classified; `occurrence` is the zero-based index of the
  * occurrence to test (0 = first), so each case pins exactly one site; `expected` is the
- * kind that occurrence must produce in both engines.
+ * kind that occurrence must produce.
  */
 export interface ClassifyCase {
 	code: string;

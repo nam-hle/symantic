@@ -1,15 +1,19 @@
 import { fileURLToPath } from "node:url";
 
-import { test, expect, describe } from "vitest";
+import { test, expect, describe, afterAll } from "vitest";
 
 import { Engine } from "../index.js";
 
 const tsConfigPath = fileURLToPath(new URL("./fixtures/sample/tsconfig.json", import.meta.url));
 
+const engine = new Engine({ tsConfigPath });
+
+afterAll(() => {
+	engine.dispose();
+});
+
 describe("namespace-nested resolution", () => {
 	test("resolves a dotted path into a namespace", () => {
-		const engine = new Engine({ tsConfigPath });
-
 		const result = engine.resolveSymbol("src/nested.ts:Model::Node");
 
 		expect(result.kind).toBe("symbol");
@@ -23,8 +27,6 @@ describe("namespace-nested resolution", () => {
 	});
 
 	test("resolves a deeply nested dotted path", () => {
-		const engine = new Engine({ tsConfigPath });
-
 		const result = engine.resolveSymbol("src/nested.ts:Model::Inner::Node");
 
 		expect(result.kind).toBe("symbol");
@@ -37,8 +39,6 @@ describe("namespace-nested resolution", () => {
 	});
 
 	test("a bare nested name returns candidates with dotted paths", () => {
-		const engine = new Engine({ tsConfigPath });
-
 		const result = engine.resolveSymbol("src/nested.ts:Node");
 
 		expect(result.kind).toBe("ambiguous");
@@ -54,8 +54,6 @@ describe("namespace-nested resolution", () => {
 	});
 
 	test("resolves the namespace itself by dotted path", () => {
-		const engine = new Engine({ tsConfigPath });
-
 		const result = engine.resolveSymbol("src/nested.ts:Model");
 
 		expect(result.kind).toBe("symbol");
@@ -68,8 +66,6 @@ describe("namespace-nested resolution", () => {
 	});
 
 	test("a dotted member separator hints toward :: (#101)", () => {
-		const engine = new Engine({ tsConfigPath });
-
 		const result = engine.resolveSymbol("src/nested.ts:Model.Node");
 
 		expect(result.kind).toBe("not-found");
@@ -84,8 +80,6 @@ describe("namespace-nested resolution", () => {
 	});
 
 	test("membersByName folds a merged interface+namespace into one member list (#97)", () => {
-		const engine = new Engine({ tsConfigPath });
-
 		const members = engine.membersByName("src/merged.ts:Summary").map((m) => m.name);
 
 		expect(members).toContain("total"); // interface member

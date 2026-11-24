@@ -1,16 +1,36 @@
 /**
  * Symbol resolution — qualified-name parsing and name-based declaration lookup.
  *
- * Grammar: `relPath:name` where `name` is a dot-separated path into nested
- * namespaces (`Model.Inner.Node`), with an optional `#index` to disambiguate.
+ * Grammar: `relPath:name` where `name` is a `::`-separated path into nested
+ * namespaces (`Model::Inner::Node`), with an optional `#index` to disambiguate.
  * A bare last segment (`Node`) matches a declaration at any namespace depth and
  * returns each match tagged with its full dotted path.
  * See docs/DESIGN.md open-Q (symbol resolution).
  */
-import { Node } from "ts-morph";
-import type { Statement, SourceFile } from "ts-morph";
+import type { Node, Statement, SourceFile } from "typescript/ast";
+import {
+	isBlock,
+	isModuleBlock,
+	isArrowFunction,
+	isEnumDeclaration,
+	isClassDeclaration,
+	isModuleDeclaration,
+	isMethodDeclaration,
+	isVariableStatement,
+	isPropertyAssignment,
+	isFunctionExpression,
+	isFunctionDeclaration,
+	isVariableDeclaration,
+	isInterfaceDeclaration,
+	isTypeAliasDeclaration,
+	isObjectLiteralExpression,
+	isImportEqualsDeclaration
+} from "typescript/ast";
 
-import type { Position, SymbolHandle } from "./types.js";
+import type { SymbolHandle } from "./types.js";
+import { declName, position, toRelative, forEachDescendant } from "./nodes.js";
+
+export { toRelative, position };
 
 export interface ParsedName {
 	file: string;
@@ -104,22 +124,35 @@ export function parseQualifiedName(qualifiedName: string): ParsedName {
 	return { file, index, segments };
 }
 
+/** Whether a statement introduces an addressable name (class, function, namespace, ...). */
+function isNamedStatement(stmt: Node): boolean {
+	return (
+		isClassDeclaration(stmt) ||
+		isFunctionDeclaration(stmt) ||
+		isInterfaceDeclaration(stmt) ||
+		isTypeAliasDeclaration(stmt) ||
+		isEnumDeclaration(stmt) ||
+		isModuleDeclaration(stmt) ||
+		isImportEqualsDeclaration(stmt)
+	);
+}
+
 /** Named declarations directly under a node (top-level statements or namespace body). */
-function childDeclarations(statements: Statement[]): NamedDeclaration[] {
+function childDeclarations(statements: readonly Statement[]): NamedDeclaration[] {
 	const decls: NamedDeclaration[] = [];
 
 	for (const stmt of statements) {
-		if (Node.isVariableStatement(stmt)) {
-			for (const decl of stmt.getDeclarations()) {
-				// Skip destructuring patterns (`const { a, b } = ...`) — no addressable name.
-				if (!Node.isIdentifier(decl.getNameNode())) {
-					continue;
-				}
+		if (isVariableStatement(stmt)) {
+			for (const decl of stmt.declarationList.declarations) {
+				// Destructuring patterns (`const { a, b } = ...`) have no addressable name.
+				const name = declName(decl);
 
-				decls.push({ node: decl, path: decl.getName() });
+				if (name !== undefined) {
+					decls.push({ node: decl, path: name });
+				}
 			}
-		} else if (Node.hasName(stmt)) {
-			const name = stmt.getName();
+		} else if (isNamedStatement(stmt)) {
+			const name = declName(stmt);
 
 			if (name !== undefined) {
 				decls.push({ node: stmt, path: name });
@@ -130,45 +163,46 @@ function childDeclarations(statements: Statement[]): NamedDeclaration[] {
 	return decls;
 }
 
-/** Statements inside a namespace, function, method, or arrow/fn-expr body, if any. */
-function bodyStatements(node: Node): Statement[] {
-	if (Node.isModuleDeclaration(node)) {
-		const body = node.getBody();
+/** The function body block of a function/method/arrow-valued const, if it has a block body. */
+function functionBlock(node: Node): Node | undefined {
+	if (isFunctionDeclaration(node) || isMethodDeclaration(node)) {
+		return node.body;
+	}
 
-		return body !== undefined && Node.isModuleBlock(body) ? body.getStatements() : [];
+	if (isVariableDeclaration(node)) {
+		const init = node.initializer;
+
+		return init !== undefined && (isArrowFunction(init) || isFunctionExpression(init)) ? init.body : undefined;
+	}
+
+	return undefined;
+}
+
+/** Statements inside a namespace, function, method, or arrow/fn-expr body, if any. */
+function bodyStatements(node: Node): readonly Statement[] {
+	if (isModuleDeclaration(node)) {
+		return node.body !== undefined && isModuleBlock(node.body) ? node.body.statements : [];
 	}
 
 	// Nested declarations inside a function/method body (e.g. a factory's inner functions).
-	let body: Node | undefined;
+	const body = functionBlock(node);
 
-	if (Node.isFunctionDeclaration(node) || Node.isMethodDeclaration(node)) {
-		body = node.getBody();
-	} else if (Node.isVariableDeclaration(node)) {
-		const init = node.getInitializer();
-
-		if (init !== undefined && (Node.isArrowFunction(init) || Node.isFunctionExpression(init))) {
-			body = init.getBody();
-		}
-	}
-
-	return body !== undefined && Node.isBlock(body) ? body.getStatements() : [];
+	return body !== undefined && isBlock(body) ? body.statements : [];
 }
 
 /** Named members of a class or interface declaration, as child declarations. */
 function memberDeclarations(node: Node): NamedDeclaration[] {
-	if (!Node.isClassDeclaration(node) && !Node.isInterfaceDeclaration(node)) {
+	if (!isClassDeclaration(node) && !isInterfaceDeclaration(node)) {
 		return [];
 	}
 
 	const members: NamedDeclaration[] = [];
 
-	for (const member of node.getMembers()) {
-		if (Node.hasName(member)) {
-			const name = member.getName();
+	for (const member of node.members) {
+		const name = declName(member);
 
-			if (name !== undefined) {
-				members.push({ path: name, node: member });
-			}
+		if (name !== undefined) {
+			members.push({ path: name, node: member });
 		}
 	}
 
@@ -183,28 +217,28 @@ function memberDeclarations(node: Node): NamedDeclaration[] {
 function objectLiteralFunctionProps(node: Node): NamedDeclaration[] {
 	const props: NamedDeclaration[] = [];
 
-	node.forEachDescendant((descendant) => {
+	forEachDescendant(node, (descendant) => {
 		// Shorthand method in an object literal: `{ greet(name) { ... } }`.
-		if (Node.isMethodDeclaration(descendant) && Node.isObjectLiteralExpression(descendant.getParent())) {
-			const name = descendant.getName();
+		if (isMethodDeclaration(descendant) && isObjectLiteralExpression(descendant.parent)) {
+			const name = declName(descendant);
 
-			if (name !== "") {
+			if (name !== undefined && name !== "") {
 				props.push({ path: name, node: descendant });
 			}
 
 			return;
 		}
 
-		if (!Node.isPropertyAssignment(descendant)) {
+		if (!isPropertyAssignment(descendant)) {
 			return;
 		}
 
-		const init = descendant.getInitializer();
+		const init = descendant.initializer;
 
-		if (init !== undefined && (Node.isArrowFunction(init) || Node.isFunctionExpression(init))) {
-			const name = descendant.getName();
+		if (isArrowFunction(init) || isFunctionExpression(init)) {
+			const name = declName(descendant);
 
-			if (name !== "") {
+			if (name !== undefined && name !== "") {
 				props.push({ path: name, node: descendant });
 			}
 		}
@@ -230,7 +264,7 @@ export function allDeclarations(sourceFile: SourceFile): NamedDeclaration[] {
 		}
 	};
 
-	for (const { node, path } of childDeclarations(sourceFile.getStatements())) {
+	for (const { node, path } of childDeclarations(sourceFile.statements)) {
 		result.push({ node, path });
 		descend(node, path);
 	}
@@ -239,14 +273,12 @@ export function allDeclarations(sourceFile: SourceFile): NamedDeclaration[] {
 }
 
 /** Statements inside a namespace/module body only (not function/method bodies). */
-function namespaceBodyStatements(node: Node): Statement[] {
-	if (!Node.isModuleDeclaration(node)) {
+function namespaceBodyStatements(node: Node): readonly Statement[] {
+	if (!isModuleDeclaration(node)) {
 		return [];
 	}
 
-	const body = node.getBody();
-
-	return body !== undefined && Node.isModuleBlock(body) ? body.getStatements() : [];
+	return node.body !== undefined && isModuleBlock(node.body) ? node.body.statements : [];
 }
 
 /**
@@ -265,7 +297,7 @@ export function outlineDeclarations(sourceFile: SourceFile): NamedDeclaration[] 
 		}
 	};
 
-	for (const { node, path } of childDeclarations(sourceFile.getStatements())) {
+	for (const { node, path } of childDeclarations(sourceFile.statements)) {
 		result.push({ node, path });
 		descend(node, path);
 	}
@@ -275,7 +307,7 @@ export function outlineDeclarations(sourceFile: SourceFile): NamedDeclaration[] 
 
 /**
  * Find declarations matching a name path. A multi-segment path matches by exact
- * dotted path; a single segment matches the last path component at any depth.
+ * `::` path; a single segment matches the last path component at any depth.
  */
 export function findNamedDeclarations(sourceFile: SourceFile, segments: string[]): NamedDeclaration[] {
 	const all = allDeclarations(sourceFile);
@@ -293,55 +325,6 @@ export function findNamedDeclarations(sourceFile: SourceFile, segments: string[]
 
 		return parts[parts.length - 1] === name;
 	});
-}
-
-/**
- * Like findNamedDeclarations, but if a single-segment name isn't declared locally,
- * follow the file's `export … from` / `export *` re-exports to the true declaration(s).
- * Dotted (namespace) paths are resolved locally only.
- */
-export function findDeclarationsThroughReExports(sourceFile: SourceFile, segments: string[], seen: Set<string> = new Set()): NamedDeclaration[] {
-	const local = findNamedDeclarations(sourceFile, segments);
-
-	if (local.length > 0 || segments.length > 1) {
-		return local;
-	}
-
-	const filePath = sourceFile.getFilePath();
-
-	if (seen.has(filePath)) {
-		return [];
-	}
-
-	seen.add(filePath);
-	const name = segments[0]!;
-
-	for (const exportDecl of sourceFile.getExportDeclarations()) {
-		const target = exportDecl.getModuleSpecifierSourceFile();
-
-		if (target === undefined) {
-			continue;
-		}
-
-		const named = exportDecl.getNamedExports();
-
-		// `export { a, b as c } from`: only follow if this export forwards our name.
-		if (named.length > 0) {
-			const forwards = named.some((spec) => (spec.getAliasNode()?.getText() ?? spec.getName()) === name);
-
-			if (!forwards) {
-				continue;
-			}
-		}
-
-		const found = findDeclarationsThroughReExports(target, [name], seen);
-
-		if (found.length > 0) {
-			return found;
-		}
-	}
-
-	return [];
 }
 
 /** Levenshtein edit distance between two strings. */
@@ -381,22 +364,6 @@ export function nearestNames(sourceFile: SourceFile, target: string, limit = 3):
 		.sort((a, b) => a.dist - b.dist)
 		.slice(0, limit)
 		.map((c) => c.name);
-}
-
-/** Make an absolute file path relative to a base dir, normalized to forward slashes. */
-export function toRelative(absPath: string, baseDir: string): string {
-	const normalized = absPath.replace(/\\/g, "/");
-	const base = baseDir.replace(/\\/g, "/");
-
-	return normalized.startsWith(base) ? normalized.slice(base.length).replace(/^\//, "") : normalized;
-}
-
-export function position(node: Node, baseDir: string): Position {
-	const start = node.getStart();
-	const sourceFile = node.getSourceFile();
-	const { line, column } = sourceFile.getLineAndColumnAtPos(start);
-
-	return { line, col: column, file: toRelative(sourceFile.getFilePath(), baseDir) };
 }
 
 /** Build a SymbolHandle for a declaration, optionally with a disambiguation index. */

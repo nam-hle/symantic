@@ -14,8 +14,6 @@ import { mkdtempSync, readFileSync } from "node:fs";
 
 import { it, expect, describe } from "vitest";
 
-import { tsgoBinPath } from "../../../core/src/lsp/tsgo-bin.js";
-
 const execFileAsync = promisify(execFile);
 
 const __filename = fileURLToPath(import.meta.url);
@@ -26,11 +24,6 @@ const CLI_BIN = join(__dirname, "..", "..", "dist", "index.js");
 
 /** Absolute path to the sample fixture tsconfig. */
 const TSCONFIG = join(__dirname, "..", "..", "..", "core", "src", "__tests__", "fixtures", "sample", "tsconfig.json");
-
-/** Check whether the TypeScript 7 LSP launcher is available for LSP engine tests. */
-function tsgoBinAvailable(): boolean {
-	return tsgoBinPath() !== undefined;
-}
 
 /** Run the CLI with the given args (optionally from `cwd`), returning stdout, stderr, exit code. */
 async function run(args: string[], cwd?: string): Promise<{ code: number; stdout: string; stderr: string }> {
@@ -218,12 +211,11 @@ describe("CLI integration", () => {
 			expect(stderr).toContain("::");
 		}, 20_000);
 
-		it("find def hints --engine lsp for an external import the default engine can't follow (#100)", async () => {
-			const { code, stderr } = await run(["find", "def", "--tsconfig", TSCONFIG, "src/external.ts:Node"]);
+		it("find def follows an import from an external module to its declaration (#100)", async () => {
+			const { code, stdout } = await run(["find", "def", "--tsconfig", TSCONFIG, "src/external.ts:Node"]);
 
-			expect(code).toBe(1);
-			expect(stderr).toContain("--engine lsp");
-			expect(stderr).toContain("ts-morph");
+			expect(code).toBe(0);
+			expect(stdout).toContain("ast.d.ts");
 		}, 20_000);
 
 		it("find refs prints address-first text by default", async () => {
@@ -282,17 +274,9 @@ describe("CLI integration", () => {
 		}, 20_000);
 	});
 
-	describe.skipIf(!tsgoBinAvailable())("--engine lsp", () => {
-		it("resolves a symbol with the LSP engine and prints text by default", async () => {
-			const { code, stdout } = await run(["resolve", "--tsconfig", TSCONFIG, "--engine", "lsp", "src/shapes.ts:makeCircle"]);
-
-			expect(code).toBe(0);
-			expect(stdout).toContain("src/shapes.ts:makeCircle");
-			expect(stdout).not.toContain('"kind"');
-		}, 20_000);
-
-		it("view file --body prints each namespace member exactly once (lsp)", async () => {
-			const { code, stdout } = await run(["view", "file", "--tsconfig", TSCONFIG, "--engine", "lsp", "src/nested.ts", "--body"]);
+	describe("view file --body", () => {
+		it("prints each namespace member exactly once", async () => {
+			const { code, stdout } = await run(["view", "file", "--tsconfig", TSCONFIG, "src/nested.ts", "--body"]);
 
 			expect(code).toBe(0);
 			expect(stdout).toContain("export namespace Model");

@@ -1,14 +1,19 @@
 import { fileURLToPath } from "node:url";
 
-import { test, expect, describe } from "vitest";
+import { test, expect, describe, afterAll } from "vitest";
 
 import { Engine } from "../index.js";
 
 const tsConfigPath = fileURLToPath(new URL("./fixtures/sample/tsconfig.json", import.meta.url));
 
+const engine = new Engine({ tsConfigPath });
+
+afterAll(() => {
+	engine.dispose();
+});
+
 describe("findImplementations — value implementors", () => {
 	test("names const-object implementors and finds all in one file", () => {
-		const engine = new Engine({ tsConfigPath });
 		const result = engine.resolveSymbol("src/resolvers.ts:Greeter");
 
 		if (result.kind !== "symbol") {
