@@ -32,8 +32,8 @@ question; only override to start a _new_ tracking series.
 > action/state holder, where the work is applied (client store and/or server), and the data
 > flow.
 
-This is deliberately generic so it applies to every A12 \*-engine repo (tree, overview,
-relationship, …) and exercises the same op mix each round (orientation → action/state →
+This is deliberately generic so it applies to every target repo of the same Redux/saga shape and
+exercises the same op mix each round (orientation → action/state →
 saga/middleware → reducer → selector → render): `find symbol --contains`, `view outline`,
 `view symbol`/`members`/`context`, `find refs`/`callers`. Keep it stable so round-over-round
 fallback counts are comparable.
