@@ -47,6 +47,10 @@ src/m.ts:overloaded#1                    the second of same-name declarations
 - A name resolves to **one symbol**, or to **candidates** when ambiguous — symantic never
   silently guesses. Candidates carry their full `::` path so the caller can re-address
   precisely (or add `#index`).
+- A bare name that is only an **import or re-export binding** in the addressed file
+  (`export { X } from`, `export *`, `import { X } from`, including packages in `node_modules`)
+  resolves to the true declaration: the result position points there, the qualified name keeps the
+  file that was asked, so it stays re-feedable.
 - A malformed qualified name (missing `:`, empty file/name, empty `::` segment, bad
   `#index`) is **rejected** with an error that restates the grammar — diagnosable from the
   message alone, without consulting docs.

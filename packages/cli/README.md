@@ -9,8 +9,7 @@ npm i -g @symantic/cli                         # → binary is `symantic`
 ```
 
 The nearest `tsconfig.json` is auto-discovered from the cwd (`--tsconfig <path>` to override).
-Output is token-lean, address-first text by default; add `--json` for the structured form, or
-`--engine lsp` for the tsgo-backed engine.
+Output is token-lean, address-first text by default; add `--json` for the structured form.
 
 Commands group by intent — **`view`** (read code) and **`find`** (locate / trace), plus
 `resolve` / `imports` / `exports` / `usage` / `gain`:

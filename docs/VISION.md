@@ -21,7 +21,7 @@ AI coding agents currently answer "how is this symbol used" with `grep` / ripgre
 all produce false hits or misses.
 
 The semantic engine to do this correctly already exists (TypeScript compiler / typechecker,
-wrapped by ts-morph). The gap is **not semantics** — it is **agent-shaped packaging**:
+driven through its JS API). The gap is **not semantics** — it is **agent-shaped packaging**:
 existing tools use byte offsets (agents have no cursor), emit verbose LSP payloads (burns
 tokens), and aren't tuned for an agent's query loop.
 
@@ -37,14 +37,14 @@ an **MCP server** (native agent tools, JSON) and a **CLI** (`tool refs Foo --jso
 
 ## Decisions (locked this session)
 
-| #                 | Decision                         | Choice                                                                                 |
-| ----------------- | -------------------------------- | -------------------------------------------------------------------------------------- |
-| Primary job       | query vs modify vs context       | **Query / analyse only** (modify deferred)                                             |
-| Integration       | MCP / CLI / both / lib           | **Both** — shared core, MCP + CLI adapters                                             |
-| Freshness         | live / indexed / incremental     | **Live in-memory** ts-morph `Project`, re-read files changed out-of-band before query  |
-| Symbol addressing | qualified-name / position / both | **Qualified name** (`file.ts:MyClass::method`, `IFoo`); on ambiguity return candidates |
-| Output detail     | minimal / snippet / block        | **Minimal by default** (`file:line:col` + kind); snippet/block via flag                |
-| Architecture      | stateless / warm-core / hybrid   | **Warm core engine + thin adapters**                                                   |
+| #                 | Decision                         | Choice                                                                                  |
+| ----------------- | -------------------------------- | --------------------------------------------------------------------------------------- |
+| Primary job       | query vs modify vs context       | **Query / analyse only** (modify deferred)                                              |
+| Integration       | MCP / CLI / both / lib           | **Both** — shared core, MCP + CLI adapters                                              |
+| Freshness         | live / indexed / incremental     | **Live in-memory** TypeScript 7 project, re-read files changed out-of-band before query |
+| Symbol addressing | qualified-name / position / both | **Qualified name** (`file.ts:MyClass::method`, `IFoo`); on ambiguity return candidates  |
+| Output detail     | minimal / snippet / block        | **Minimal by default** (`file:line:col` + kind); snippet/block via flag                 |
+| Architecture      | stateless / warm-core / hybrid   | **Warm core engine + thin adapters**                                                    |
 
 ## In scope — read/analyse only (shipped)
 
@@ -97,22 +97,20 @@ Deferred — possibly forever:
 - SCIP indexing / persistence (live-only).
 - Cross-session daemon persistence (warmth is per-process/session).
 
-## Engine roadmap — ts-morph now, Go (tsgo) next
+## Engine — the TypeScript 7 JS API
 
-The core is **transport-agnostic and engine-agnostic by design** (core ↔ adapters split in
-DESIGN). The analysis engine sits behind `resolveSymbol` / `findUsages` and is swappable.
+The core is **transport-agnostic by design** (core ↔ adapters split in DESIGN). The analysis
+engine sits behind the `SymbolEngine` interface (`resolveSymbol` / `findUsages` / …).
 
-- **Default engine: ts-morph** (TypeScript compiler API, Node). Mature, exact, `findReferences()`
-  / `getImplementations()` ship today. Matches the thesis: borrow proven semantics, build
-  ergonomics. Cost = Node runtime + cold-start/typecheck latency (see Key risks).
-- **Opt-in engine: tsgo (Go), shipped as `--engine lsp`** — Microsoft's native port of the
-  TypeScript compiler (`typescript-go`), faster on the hot path, driven over LSP. It is the
-  cold-start / perf escape hatch: same compiler-accurate semantics, native speed. Wired behind
-  the same core interface and selectable today via `--engine lsp` (CLI) / `engine: "lsp"` (MCP),
-  with `@typescript/native` (`npm:typescript@^7`, `tsc --lsp`) as an _optional_ dependency. TypeScript 7 is GA, but its
-  embeddable JS API is still `unstable/*` — the ts-morph engine stays the default (it bundles
-  TypeScript 6.0); parity gaps fall back to the default. Endgame: tsgo as the default once that
-  API is stable.
+- **One engine: the TypeScript 7 compiler through `typescript/sync`.** Microsoft's native port of
+  the TypeScript compiler (`typescript-go`) runs as a `tsc --api` child process; the Node client
+  asks it for the checker, the language service and AST nodes. Native speed, same
+  compiler-accurate semantics. The API still ships as a nightly (`7.1.0-dev.*`) and the
+  client/server protocol is unversioned, so `@symantic/core` pins the exact build.
+- **Behaviour spec = what the compiler returns.** `find refs` includes the declaration itself and
+  returns a merged symbol (interface + namespace) whole; definitions follow imports and
+  re-exports through the checker. What the JS API does not expose (call hierarchy, implementations)
+  is built from references, the checker and resolved call signatures.
 - **Not Rust.** The Rust semantic-typechecker tier is not viable: STC (the tsc-compatible Rust
   checker) is **archived/abandoned** (2025); Ezno / tsz are research-grade, not at tsc parity.
   Rust TS tooling (SWC, oxc, ast-grep) is **syntactic only** — fast AST, no type-aware refs —
@@ -122,8 +120,8 @@ DESIGN). The analysis engine sits behind `resolveSymbol` / `findUsages` and is s
 
 ## Key risks
 
-- **Cold start.** ts-morph loads + typechecks the whole project on first call; big repos = slow
-  first query. Mitigation: warm core holds `Project` in memory across calls (MCP keeps it warm;
+- **Cold start.** The compiler loads the whole project on the first call; big repos = slow
+  first query. Mitigation: warm core holds the project in memory across calls (MCP keeps it warm;
   CLI daemon or accept cold one-shot). See DESIGN "Performance".
 - **Staleness.** Agent edits files out-of-band (its own tools) between queries; in-memory
   `Project` goes stale → wrong answers. Read-only, so no corruption — but must detect changed

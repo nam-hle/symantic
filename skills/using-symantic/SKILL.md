@@ -62,11 +62,9 @@ symantic find callers src/server.ts:start  # who calls it
 
 ## Engine
 
-Append `--engine lsp` (tsgo-backed, faster on the hot path) to any command by default. Drop it
-— back to the default ts-morph engine — if it errors that tsgo is unavailable, returns
-empty/surprising results, or shows a parity gap. Known gap: `find symbol` on `--engine lsp` can
-return empty where the default engine finds the symbol — if a name search comes back `(none)`,
-retry without `--engine lsp` before concluding the symbol doesn't exist.
+One engine (the native TypeScript 7 compiler) serves every command; there is no engine flag.
+`find refs` lists the symbol's own declaration too (kind `declaration`); `find def` and `view`
+ops follow imports and re-exports to the true declaration.
 
 ## grep + symantic — division of labor
 

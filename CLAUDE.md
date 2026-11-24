@@ -8,7 +8,7 @@ scope and architecture.
 
 ```
 packages/
-  core/   warm ts-morph Project, symbol resolution, query + outline ops (transport-agnostic)
+  core/   warm TypeScript 7 project (typescript/sync), symbol resolution, query + outline ops (transport-agnostic)
   mcp/    MCP server adapter
   cli/    CLI adapter (citty subcommands, JSON output)
 skills/   the using-symantic Claude Code skill (shipped as a plugin via .claude-plugin/)
@@ -32,7 +32,7 @@ Tests live in `packages/core/src/__tests__/`. Fixtures under `__tests__/fixtures
 - Node 24+ (pinned in `.nvmrc`; `nvm use`), pnpm, ESM throughout. `@types/node` pinned to v24.
 - Task runner: **nadle** (`nadle.config.ts`) — the only runner. Root `package.json` exposes one
   `nadle` script, so invoke every task as `pnpm nadle <task>`; there are no per-task pnpm
-  scripts. Engine: **ts-morph**. Bundler for the cli/mcp bins: **tsup** (one root `tsup.config.ts`).
+  scripts. Engine: **TypeScript 7 JS API** (`typescript/sync`, pinned to an exact nightly; root `typescript` stays TS 6 for typescript-eslint). Bundler for the cli/mcp bins: **tsup** (one root `tsup.config.ts`).
 - Single root config per concern: `tsconfig.check.json` (whole-repo `noEmit`, used by both
   ESLint and `typecheck`), `vitest.config.ts`, `eslint.config.ts`, `tsup.config.ts`. tsconfig
   inheritance: `base` (noEmit) → `src` (composite emit, excludes tests) → per-package.
@@ -81,7 +81,8 @@ what you needed + why no op fit, and file it as a feature/ergonomics issue.
 ## Conventions
 
 - TDD: write the failing test first, watch it fail, then implement (red-green-refactor).
-- Cross-platform: ts-morph paths are forward-slash; normalize before string ops (Windows CI).
+- Cross-platform: normalize file names to forward slashes (`normalizeSlashes`) before string ops (Windows CI).
+- Tests share one `Engine` per file and `dispose()` it in `afterAll`: each engine owns a `tsc --api` process.
 - Verify before claiming done: run build + test + check; never assert green without output.
 
 ## Commit messages — Conventional Commits

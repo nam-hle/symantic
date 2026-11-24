@@ -25,7 +25,7 @@ what's the shape of this file?_ — with results that are:
 - **Name-addressed** — `src/foo.ts:Bar::method`, never a byte offset. Every result feeds straight
   back into the next query.
 - **Token-lean** — a compact tree, classified references, paginated. No LSP noise.
-- **Compiler-accurate** — TypeScript via [ts-morph](https://ts-morph.com/) underneath. Accuracy is
+- **Compiler-accurate** — the TypeScript 7 compiler (its JS API, `typescript/sync`) underneath. Accuracy is
   table stakes; the **output contract is the point**.
 
 It is **deterministic** — symantic never runs an LLM. It hands the agent exact structure; the prose
@@ -66,8 +66,8 @@ Ops with **no LSP equivalent** — `view body` (statement skeleton), `exports` (
 `export *`), bounded call hierarchy, `usage` (dead-code in one call). A bridge wrapping a language
 server can't produce these by pass-through.
 
-The engine (ts-morph today, [tsgo](https://github.com/microsoft/typescript-go) later) is
-commoditized. The output contract is the durable part — see the
+The engine (the [TypeScript 7](https://github.com/microsoft/typescript-go) compiler, driven
+through its JS API) is commoditized. The output contract is the durable part — see the
 [v1 roadmap epic](https://github.com/nam-hle/symantic/issues/78).
 
 The fuller argument for the address model — why byte-offsets fail an agent and what
@@ -159,22 +159,20 @@ args = ["-y", "@symantic/mcp"]
 Tools: `view_outline`, `view_symbol`, `view_context`, `view_region`, `view_members`, `view_body`,
 `find_symbol`, `find_def`, `find_refs`, `find_impls`, `find_callers`, `find_callees`, `resolve`,
 `imports`, `exports`, `usage_report`. Each takes a `tsConfig` argument (engine cached per tsconfig);
-pass `engine: "lsp"` for the tsgo backend, or `json: true` for structured output.
+pass `json: true` for structured output.
 
-## The `lsp` engine (experimental)
+## The engine
 
-Add `--engine lsp` to any CLI command to use the tsgo-backed engine instead of the ts-morph default.
-
-> It needs `@typescript/native` (`npm:typescript@^7`, whose `tsc --lsp` is the native server),
-> declared as an _optional_ dependency — the default ts-morph engine runs on the TypeScript bundled
-> in ts-morph and pulls no native binary. If it is absent or unavailable for your platform,
-> `--engine lsp` errors with an install hint while the default engine keeps working.
+One engine serves every command: the TypeScript 7 compiler, spawned as `tsc --api` and driven
+through the `typescript/sync` JS API. `@symantic/core` pins that dependency to an exact nightly
+(`typescript@7.1.0-dev.…`): the protocol between the JS client and the Go server is unversioned, so
+a client and a server of different builds are not guaranteed to agree. It ships a native binary per
+platform (an optional dependency of `typescript`); no TypeScript 6 package is involved at runtime.
 
 ## Warm daemon (CLI performance)
 
 The first CLI query on a project spawns a small background daemon that keeps the loaded project
-warm, one per `(tsconfig, engine)`; repeat queries skip the full project load (~3s → ~0.7s on a
-mid-size package). The daemon exits on its own after 10 idle minutes. State lives under
+warm, one per tsconfig; repeat queries skip the full project load. The daemon exits on its own after 10 idle minutes. State lives under
 `~/.symantic/daemon/` (plus a socket in the OS temp dir); set `SYMANTIC_NO_DAEMON=1` to always run
 queries in-process.
 
@@ -200,11 +198,11 @@ The ledger is **local only** — nothing is transmitted. Delete it any time to r
 
 | Package                           | Role                                                               |
 | --------------------------------- | ------------------------------------------------------------------ |
-| [`@symantic/core`](packages/core) | warm ts-morph Project, symbol resolution, query + outline ops      |
+| [`@symantic/core`](packages/core) | warm TypeScript 7 project, symbol resolution, query + outline ops  |
 | [`@symantic/cli`](packages/cli)   | the `symantic` CLI — one-shot semantic queries                     |
 | [`@symantic/mcp`](packages/mcp)   | MCP server — the same ops as tools, project held warm across calls |
 
-The analysis engine is swappable behind the core API.
+The core API (`SymbolEngine`) is transport-agnostic: the CLI and the MCP server are thin adapters.
 
 ## Development
 

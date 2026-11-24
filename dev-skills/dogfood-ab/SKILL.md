@@ -93,9 +93,7 @@ the run. (The conversation is ephemeral; the ledger + filed issues are the durab
 > TOOLING: **prefer the `symantic` CLI** (on PATH) for all TypeScript navigation — reach for it
 > first for every "where is this / what's its shape / who calls it" question. You **may** fall
 > back to grep/ripgrep/Glob/Read, but treat every fallback as a cost: before falling back, try
-> the symantic op that should serve it. **Use `--engine lsp` on every symantic command** (the
-> faster tsgo backend); only drop it for a single command if lsp errors or returns clearly
-> wrong/empty output. tsconfig: `<tsconfig>` (run from `<target-dir>` or pass `--tsconfig`). The
+> the symantic op that should serve it. tsconfig: `<tsconfig>` (run from `<target-dir>` or pass `--tsconfig`). The
 > op set, addressing scheme, and orientation habit (`find symbol <part> --contains` when you
 > don't know the file) are in the **using-symantic** skill — invoke it for the command reference.
 >

@@ -14,12 +14,12 @@ Rejected alternatives:
 
 ```
 packages/
-  core/   # engine: warm ts-morph Project, query ops, formatting. Transport-agnostic.
+  core/   # engine: warm TypeScript 7 project (typescript/sync), query ops, formatting. Transport-agnostic.
   mcp/    # MCP server adapter — keeps core warm across tool calls
   cli/    # CLI adapter — daemon (warm) or one-shot (cold)
 ```
 
-- **core** owns: project loading, symbol resolution (qualified-name → ts-morph Symbol),
+- **core** owns: project loading, symbol resolution (qualified-name → declaration node + compiler symbol),
   query ops, output formatting. Read-only in v1 — no write path. Knows nothing about MCP or CLI.
 - **mcp** / **cli** are thin: translate transport ↔ core calls. No analysis logic.
 
@@ -46,7 +46,7 @@ Sketch (not yet approved) — read-only:
 - `callHierarchy(symbol, { direction, depth }) -> CallNode[]` — incoming callers / outgoing callees
 - dependency-graph queries (vision-level, design TBD)
 
-All outline ops = deterministic AST walks (ts-morph). No LLM (see VISION anti-goal).
+All outline ops = deterministic AST walks (`typescript/ast`). No LLM (see VISION anti-goal).
 
 `rename` / `move` removed — modification deferred (see VISION "Out of scope").
 
@@ -63,7 +63,7 @@ All outline ops = deterministic AST walks (ts-morph). No LLM (see VISION anti-go
    bounding (limit/cursor/count-only).
 4. Error handling — symbol-not-found, ambiguous, out-of-project-scope.
 5. Monorepo / multi-tsconfig — which Project resolves a given symbol; project references.
-6. Concurrency — MCP concurrent queries on one mutable Project (ts-morph caches on read,
+6. Concurrency — MCP concurrent queries on one mutable Project (the `tsc --api` session is
    not reentrant); serialize vs isolate. See Section 3.
 7. Outline schema — statement kinds surfaced by `outlineFunction` (loop/if/switch/try/call/
    return/decl?), nesting/`depth` model, where it stops; file/symbol outline record shape.
