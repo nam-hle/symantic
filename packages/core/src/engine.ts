@@ -795,6 +795,14 @@ export class Engine implements SymbolEngine {
 		return handles;
 	}
 
+	/** Position of the name identifier of the symbol's first declaration, the spot an editor acts on. */
+	public symbolNamePosition(symbol: SymbolHandle): Position | undefined {
+		const [declaration] = this.#declarationsFor(symbol);
+		const name = declaration === undefined ? undefined : nameNodeOf(declaration);
+
+		return name === undefined ? undefined : position(name, this.#baseDir);
+	}
+
 	/** Exact source of each declaration of a symbol (signature + body). */
 	public symbolSource(symbol: SymbolHandle): SourceResult[] {
 		const { file, segments } = parseQualifiedName(symbol.qualifiedName);

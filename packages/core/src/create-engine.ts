@@ -25,6 +25,7 @@ export function asAsync(engine: DisposableSymbolEngine): AsyncSymbolEngine {
 		outlineSymbol: (symbol) => Promise.resolve(engine.outlineSymbol(symbol)),
 		symbolContext: (symbol) => Promise.resolve(engine.symbolContext(symbol)),
 		findDefinition: (symbol) => Promise.resolve(engine.findDefinition(symbol)),
+		symbolNamePosition: (symbol) => Promise.resolve(engine.symbolNamePosition(symbol)),
 		usageReport: (path, options) => Promise.resolve(engine.usageReport(path, options)),
 		searchSymbol: (name, options) => Promise.resolve(engine.searchSymbol(name, options)),
 		findUsages: (symbol, options) => Promise.resolve(engine.findUsages(symbol, options)),

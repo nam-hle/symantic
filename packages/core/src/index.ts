@@ -20,3 +20,10 @@ export {
 	renderImports,
 	renderUsageReport
 } from "./render.js";
+export { planRename, isValidIdentifier } from "./edit/rename.js";
+export type { RenameRequest } from "./edit/rename.js";
+export { applyEditPlan } from "./edit/apply.js";
+export type { ApplyOptions, EditResult, ChangedFile } from "./edit/apply.js";
+export { EditConflictError, EditRefusedError } from "./edit/errors.js";
+export { contentHash, normalizeWorkspaceEdit, applyTextEdits } from "./edit/plan.js";
+export type { EditPlan, FileEdits, FileMove, TextEdit, LspRange, LspPosition, WorkspaceEdit } from "./edit/plan.js";
