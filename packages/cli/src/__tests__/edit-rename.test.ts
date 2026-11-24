@@ -3,7 +3,7 @@ import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { join, dirname } from "node:path";
 import { execFile } from "node:child_process";
-import { cpSync, rmSync, existsSync, mkdtempSync, readdirSync, readFileSync } from "node:fs";
+import { cpSync, rmSync, chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync } from "node:fs";
 
 import { it, expect, describe, afterEach } from "vitest";
 
@@ -98,6 +98,20 @@ describe("edit rename", () => {
 		expect(stdout).toContain("Unchanged");
 		expect(read(dir, "src/foo.ts")).toContain("export function foo()");
 	}, 60_000);
+
+	it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+		"fails with WRITE_FAILED and writes nothing when a file is read-only",
+		async () => {
+			const dir = copyFixture();
+			chmodSync(join(dir, "src/use.ts"), 0o444);
+			const { code, stderr } = await run(["edit", "rename", "src/foo.ts:foo", "--to", "run", "--json"], dir);
+
+			expect(code).toBe(5);
+			expect(JSON.parse(stderr)).toMatchObject({ code: "WRITE_FAILED", context: { failed: "src/use.ts", written: [] } });
+			expect(read(dir, "src/foo.ts")).toContain("export function foo()");
+		},
+		60_000
+	);
 
 	it("fails with VALIDATION_ERROR naming --to for an invalid new name", async () => {
 		const dir = copyFixture();

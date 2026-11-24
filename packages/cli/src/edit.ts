@@ -80,6 +80,12 @@ export function editFailure(error: unknown, context: Record<string, unknown>): u
 		});
 	}
 
+	if (error.name === "EditWriteError") {
+		const { failed, written, restored } = error as Error & { failed: string; written: string[]; restored: string[] };
+
+		return new SymanticError("WRITE_FAILED", error.message, { context: { ...context, failed, written, restored } });
+	}
+
 	if (error.name === "EditOverlapError") {
 		const files = (error as Error & { paths?: string[] }).paths ?? [];
 

@@ -1,6 +1,6 @@
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { rmSync, mkdirSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { rmSync, statSync, chmodSync, mkdirSync, existsSync, readdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 
 import { it, expect, describe, afterEach } from "vitest";
 
@@ -201,6 +201,43 @@ describe("applyEditPlan", () => {
 
 		expect(() => applyEditPlan(overlapping, { baseDir: dir })).toThrow(expect.objectContaining({ name: "EditOverlapError", paths: ["b.ts"] }));
 		expect(readFileSync(join(dir, "a.ts"), "utf8")).toBe("foo\n");
+	});
+
+	describe.skipIf(process.platform === "win32" || process.getuid?.() === 0)("when a file cannot be written", () => {
+		it("checks every target first: a read-only file means nothing is written", () => {
+			const dir = project({ "a.ts": "foo\n", "b.ts": "foo\n" });
+			chmodSync(join(dir, "b.ts"), 0o444);
+			const both: EditPlan = { moves: [], files: ["a.ts", "b.ts"].map((path) => ({ path, edits: [edit(0, 0, 3, "run")] })) };
+
+			expect(() => applyEditPlan(both, { baseDir: dir })).toThrow(expect.objectContaining({ name: "EditWriteError", failed: "b.ts", written: [] }));
+			expect(readFileSync(join(dir, "a.ts"), "utf8")).toBe("foo\n");
+		});
+
+		it("restores files already written when a later write fails", () => {
+			const dir = project({ "a.ts": "foo\n", "sub/b.ts": "foo\n" });
+			chmodSync(join(dir, "sub"), 0o555);
+			const both: EditPlan = { moves: [], files: ["a.ts", "sub/b.ts"].map((path) => ({ path, edits: [edit(0, 0, 3, "run")] })) };
+
+			try {
+				expect(() => applyEditPlan(both, { baseDir: dir })).toThrow(
+					expect.objectContaining({ name: "EditWriteError", failed: "sub/b.ts", written: ["a.ts"], restored: ["a.ts"] })
+				);
+				expect(readFileSync(join(dir, "a.ts"), "utf8")).toBe("foo\n");
+				expect(readdirSync(dir).filter((name) => name.endsWith(".tmp"))).toEqual([]);
+			} finally {
+				chmodSync(join(dir, "sub"), 0o755);
+			}
+		});
+	});
+
+	it("writes through a temp file and keeps the file mode", () => {
+		const dir = project({ "a.ts": "foo\n" });
+		chmodSync(join(dir, "a.ts"), 0o640);
+		applyEditPlan({ moves: [], files: [{ path: "a.ts", edits: [edit(0, 0, 3, "run")] }] }, { baseDir: dir });
+
+		expect(readFileSync(join(dir, "a.ts"), "utf8")).toBe("run\n");
+		expect(readdirSync(dir)).toEqual(["a.ts"]);
+		expect(process.platform === "win32" || statSync(join(dir, "a.ts")).mode % 0o1000 === 0o640).toBe(true);
 	});
 
 	it("moves files after editing, creating the target directory", () => {

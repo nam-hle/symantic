@@ -29,3 +29,18 @@ export class EditOverlapError extends Error {
 		this.paths = paths;
 	}
 }
+
+/** A file could not be written. `restored` lists files written earlier and put back to their original content. */
+export class EditWriteError extends Error {
+	public readonly failed: string;
+	public readonly written: string[];
+	public readonly restored: string[];
+
+	public constructor(message: string, details: { failed: string; written: string[]; restored: string[] }) {
+		super(message);
+		this.name = "EditWriteError";
+		this.failed = details.failed;
+		this.written = details.written;
+		this.restored = details.restored;
+	}
+}

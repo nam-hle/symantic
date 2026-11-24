@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { rmSync, mkdtempSync, writeFileSync } from "node:fs";
 
 import { it, expect, describe, afterEach } from "vitest";
-import { contentHash, EditConflictError, EditOverlapError, EditRefusedError } from "@symantic/core";
+import { contentHash, EditConflictError, EditOverlapError, EditRefusedError, EditWriteError } from "@symantic/core";
 
 import { SymanticError, exitClassOf, toEnvelope } from "../errors.js";
 import { hashFiles, lastSegment, editFailure, identifierAt, renderRename, withNewName } from "../edit.js";
@@ -77,6 +77,14 @@ describe("editFailure", () => {
 
 		expect(envelope).toMatchObject({ code: "CONFLICT", context: { files: ["src/a.ts"] } });
 		expect(exitClassOf(envelope)).toBe(6);
+	});
+
+	it("maps a failed write to WRITE_FAILED, exit class 5, listing written and restored files", () => {
+		const failure = editFailure(new EditWriteError("no", { failed: "b.ts", written: ["a.ts"], restored: ["a.ts"] }), {}) as SymanticError;
+		const envelope = toEnvelope(failure);
+
+		expect(envelope).toMatchObject({ code: "WRITE_FAILED", context: { failed: "b.ts", written: ["a.ts"], restored: ["a.ts"] } });
+		expect(exitClassOf(envelope)).toBe(5);
 	});
 
 	it("maps overlapping edits to INTERNAL naming the files", () => {

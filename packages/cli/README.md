@@ -49,6 +49,7 @@ as one object `{ status, code, message, context, hint }`. Branch on `code` or th
 | 1    | unexpected error                                | `INTERNAL`                                                                              |
 | 2    | usage error                                     | `VALIDATION_ERROR`, `UNKNOWN_OPTION`, `UNKNOWN_COMMAND`, `MISSING_COMMAND`, `AMBIGUOUS` |
 | 3    | not found                                       | `NOT_FOUND`, `NO_PROJECT`                                                               |
+| 5    | a file could not be written                     | `WRITE_FAILED` (files already written were restored)                                    |
 | 6    | a file changed under an edit                    | `CONFLICT` (nothing was written)                                                        |
 
 `context` names the offending input (`flag` and `value`, `symbol`, `tsconfig`); `MISSING_COMMAND` and

@@ -125,6 +125,7 @@ const EXIT_CODE_TABLE = [
 	"  1  unexpected error",
 	"  2  usage error: unknown flag or command, bad value, ambiguous address",
 	"  3  not found: the address, file or project does not exist",
+	"  5  write failed: a file could not be written; earlier writes were restored",
 	"  6  conflict: a file changed while an edit was computed; nothing was written"
 ].join("\n");
 
