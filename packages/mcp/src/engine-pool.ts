@@ -63,13 +63,17 @@ export class EnginePool {
 		const engine = this.#create({ tsConfigPath: tsConfig });
 		this.#engines.set(key, engine);
 
-		// Evict LRU (oldest) entries beyond the cap; dispose them and drop their serial chain.
+		// Evict LRU (oldest) entries beyond the cap. Disposal queues behind the engine's pending
+		// calls, so none runs on a half-torn-down engine.
 		while (this.#engines.size > this.#maxEngines) {
 			const oldestKey = this.#engines.keys().next().value as string;
 			const evicted = this.#engines.get(oldestKey)!;
 			this.#engines.delete(oldestKey);
-			clearSerialKey(oldestKey);
-			void evicted.dispose();
+			void serialize(oldestKey, () => evicted.dispose()).then(() => {
+				if (!this.#engines.has(oldestKey)) {
+					clearSerialKey(oldestKey);
+				}
+			});
 		}
 
 		return engine;
@@ -77,11 +81,15 @@ export class EnginePool {
 
 	/**
 	 * The engine for a tsconfig, wrapped so every async method call is serialized on a
-	 * per-engine chain. `dispose` runs directly (the shutdown path); every query serializes.
+	 * per-engine chain. `dispose` runs directly (the shutdown path); every query serializes,
+	 * refreshes the engine first (files edited between calls), and runs on the pool's *current*
+	 * engine for the tsconfig: a call queued on an evicted engine goes to a fresh pooled one,
+	 * never re-spawning an untracked compiler process.
 	 */
 	public engineFor(tsConfig: string): AsyncSymbolEngine {
 		const key = tsConfig;
 		const engine = this.#rawEngineFor(key, tsConfig);
+		const current = (): AsyncSymbolEngine => this.#engines.get(key) ?? this.#rawEngineFor(key, tsConfig);
 
 		return new Proxy(engine, {
 			get(target, prop, receiver) {
@@ -95,7 +103,16 @@ export class EnginePool {
 					return value.bind(target);
 				}
 
-				return (...args: unknown[]) => serialize(key, () => Reflect.apply(value, target, args) as Promise<unknown>);
+				return (...args: unknown[]) =>
+					serialize(key, async () => {
+						const live = current() as unknown as Record<string | symbol, (...a: unknown[]) => Promise<unknown>>;
+
+						if (prop !== "refreshIfStale") {
+							await live["refreshIfStale"]?.();
+						}
+
+						return live[prop]!(...args);
+					});
 			}
 		});
 	}
@@ -103,7 +120,7 @@ export class EnginePool {
 	/** Dispose every warm engine (and its compiler subprocess) and clear the pool. */
 	public async disposeAll(): Promise<void> {
 		const keys = [...this.#engines.keys()];
-		await Promise.all([...this.#engines.values()].map((e) => e.dispose()));
+		await Promise.all(keys.map((key) => serialize(key, () => this.#engines.get(key)!.dispose())));
 		this.#engines.clear();
 
 		for (const key of keys) {

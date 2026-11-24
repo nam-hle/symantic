@@ -57,13 +57,15 @@ describe("EnginePool", () => {
 		expect(p.size).toBe(2);
 	});
 
-	it("evicts and disposes the least-recently-used engine beyond the cap", () => {
+	it("evicts and disposes the least-recently-used engine beyond the cap", async () => {
 		const { p, created } = pool(2);
 
 		p.engineFor("/a/tsconfig.json"); // created[0]
 		p.engineFor("/b/tsconfig.json"); // created[1]
 		p.engineFor("/a/tsconfig.json"); // touch a → a is now MRU, b is LRU
 		p.engineFor("/c/tsconfig.json"); // created[2] → evicts b (LRU)
+
+		await new Promise((r) => setTimeout(r, 0));
 
 		expect(p.size).toBe(2);
 		expect(created[1]!.disposed).toBe(true); // b evicted + disposed
@@ -109,5 +111,60 @@ describe("EnginePool", () => {
 
 		expect(p.size).toBe(0);
 		expect(created.every((e) => e.disposed)).toBe(true);
+	});
+
+	it("refreshes the engine before every query", async () => {
+		const calls: string[] = [];
+		const p = new EnginePool({
+			exists: () => true,
+			createEngine: () =>
+				({
+					dispose: () => Promise.resolve(),
+					resolveSymbol: () => Promise.resolve(void calls.push("query")),
+					refreshIfStale: () => Promise.resolve(void calls.push("refresh"))
+				}) as unknown as AsyncSymbolEngine
+		});
+
+		await p.engineFor("/a/tsconfig.json").resolveSymbol("x");
+
+		expect(calls).toEqual(["refresh", "query"]);
+	});
+
+	it("never leaves a live engine behind when a call is queued on an evicted engine", async () => {
+		// A fake that, like the real Engine, re-warms (spawns a child) when used after dispose.
+		const made: { alive: boolean }[] = [];
+		let release: () => void = () => undefined;
+		const gate = new Promise<void>((res) => {
+			release = res;
+		});
+		const p = new EnginePool({
+			maxEngines: 1,
+			exists: () => true,
+			createEngine: () => {
+				const fake = {
+					alive: false,
+					dispose: () => Promise.resolve(void (fake.alive = false)),
+					resolveSymbol: async () => {
+						fake.alive = true;
+						await gate;
+
+						return { kind: "not-found" as const };
+					}
+				};
+				made.push(fake);
+
+				return fake as unknown as AsyncSymbolEngine;
+			}
+		});
+
+		const a = p.engineFor("/a/tsconfig.json");
+		const running = a.resolveSymbol("x");
+		const queued = a.resolveSymbol("y"); // queued behind the running call
+		p.engineFor("/b/tsconfig.json"); // evicts a while its calls are pending
+		release();
+		await Promise.all([running, queued]);
+		await p.disposeAll();
+
+		expect(made.every((e) => !e.alive)).toBe(true);
 	});
 });
