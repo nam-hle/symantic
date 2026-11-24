@@ -346,10 +346,12 @@ export class Engine implements SymbolEngine {
 		}
 
 		let next: Snapshot | undefined;
+		// Windows CI missed new files sent as per-file `created` notices; invalidating all caches covers it.
+		const fileNotifications = created.length > 0 ? { invalidateAll: true } : { changed, deleted };
 
 		try {
 			// openProjects must be repeated: without it the update keeps the old program untouched.
-			next = session.snapshot.update({ openProjects: [this.#tsConfigPath], fileNotifications: { changed, created, deleted } });
+			next = session.snapshot.update({ fileNotifications, openProjects: [this.#tsConfigPath] });
 			const fresh = this.#openSession(session.api, next);
 			session.snapshot.dispose();
 			this.#session = fresh;
