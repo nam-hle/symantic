@@ -32,8 +32,8 @@ question; only override to start a _new_ tracking series.
 > action/state holder, where the work is applied (client store and/or server), and the data
 > flow.
 
-This is deliberately generic so it applies to every A12 \*-engine repo (tree, overview,
-relationship, …) and exercises the same op mix each round (orientation → action/state →
+This is deliberately generic so it applies to every target repo of the same Redux/saga shape and
+exercises the same op mix each round (orientation → action/state →
 saga/middleware → reducer → selector → render): `find symbol --contains`, `view outline`,
 `view symbol`/`members`/`context`, `find refs`/`callers`. Keep it stable so round-over-round
 fallback counts are comparable.
@@ -93,9 +93,7 @@ the run. (The conversation is ephemeral; the ledger + filed issues are the durab
 > TOOLING: **prefer the `symantic` CLI** (on PATH) for all TypeScript navigation — reach for it
 > first for every "where is this / what's its shape / who calls it" question. You **may** fall
 > back to grep/ripgrep/Glob/Read, but treat every fallback as a cost: before falling back, try
-> the symantic op that should serve it. **Use `--engine lsp` on every symantic command** (the
-> faster tsgo backend); only drop it for a single command if lsp errors or returns clearly
-> wrong/empty output. tsconfig: `<tsconfig>` (run from `<target-dir>` or pass `--tsconfig`). The
+> the symantic op that should serve it. tsconfig: `<tsconfig>` (run from `<target-dir>` or pass `--tsconfig`). The
 > op set, addressing scheme, and orientation habit (`find symbol <part> --contains` when you
 > don't know the file) are in the **using-symantic** skill — invoke it for the command reference.
 >

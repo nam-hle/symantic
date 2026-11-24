@@ -1,11 +1,17 @@
 import { fileURLToPath } from "node:url";
 
-import { test, expect, describe } from "vitest";
+import { test, expect, describe, afterAll } from "vitest";
 
 import { Engine } from "../index.js";
 import type { CallNode, SymbolHandle } from "../index.js";
 
 const tsConfigPath = fileURLToPath(new URL("./fixtures/sample/tsconfig.json", import.meta.url));
+
+const engine = new Engine({ tsConfigPath });
+
+afterAll(() => {
+	engine.dispose();
+});
 
 function resolve(engine: Engine, name: string): SymbolHandle {
 	const result = engine.resolveSymbol(name);
@@ -23,7 +29,6 @@ function names(nodes: CallNode[]): string[] {
 
 describe("callHierarchy", () => {
 	test("incoming: lists the functions that call the symbol", () => {
-		const engine = new Engine({ tsConfigPath });
 		const symbol = resolve(engine, "src/shapes.ts:makeCircle");
 
 		const callers = engine.callHierarchy(symbol, { depth: 1, direction: "incoming" });
@@ -32,7 +37,6 @@ describe("callHierarchy", () => {
 	});
 
 	test("outgoing: lists the functions the symbol calls", () => {
-		const engine = new Engine({ tsConfigPath });
 		const symbol = resolve(engine, "src/consumer.ts:averageArea");
 
 		const callees = engine.callHierarchy(symbol, { depth: 1, direction: "outgoing" });
@@ -41,7 +45,6 @@ describe("callHierarchy", () => {
 	});
 
 	test("outgoing: descends into an arrow-bound class property's body", () => {
-		const engine = new Engine({ tsConfigPath });
 		const symbol = resolve(engine, "src/consumer.ts:AreaService::compute");
 
 		const callees = engine.callHierarchy(symbol, { depth: 1, direction: "outgoing" });
@@ -50,7 +53,6 @@ describe("callHierarchy", () => {
 	});
 
 	test("outgoing: descends into an object-literal property's body", () => {
-		const engine = new Engine({ tsConfigPath });
 		const symbol = resolve(engine, "src/consumer.ts:makeCalculators::mean");
 
 		const callees = engine.callHierarchy(symbol, { depth: 1, direction: "outgoing" });
@@ -59,7 +61,6 @@ describe("callHierarchy", () => {
 	});
 
 	test("outgoing: descends into a function nested in a factory body", () => {
-		const engine = new Engine({ tsConfigPath });
 		const symbol = resolve(engine, "src/consumer.ts:makeSelectors::mean");
 
 		const callees = engine.callHierarchy(symbol, { depth: 1, direction: "outgoing" });
@@ -67,8 +68,15 @@ describe("callHierarchy", () => {
 		expect(names(callees)).toContain("averageArea");
 	});
 
+	test("outgoing: a `new` expression reports the constructed class", () => {
+		const symbol = resolve(engine, "src/shapes.ts:makeCircle");
+
+		const callees = engine.callHierarchy(symbol, { depth: 1, direction: "outgoing" });
+
+		expect(names(callees)).toContain("Circle");
+	});
+
 	test("incoming: names arrow/expression-bodied callers, never (anonymous) (#118)", () => {
-		const engine = new Engine({ tsConfigPath });
 		const symbol = resolve(engine, "src/consumer.ts:averageArea");
 
 		const callers = names(engine.callHierarchy(symbol, { depth: 1, direction: "incoming" }));
@@ -83,12 +91,11 @@ describe("callHierarchy", () => {
 	});
 
 	test("mutual recursion terminates and dedupes by position, not node identity", () => {
-		const engine = new Engine({ tsConfigPath });
 		const symbol = resolve(engine, "src/recursion.ts:ping");
 
 		// Deep walk over ping <-> pong: the cycle guard must visit each declaration
 		// once. A guard keyed on node identity can re-add the same source position
-		// reached via a distinct ts-morph wrapper, growing the tree past the cycle.
+		// reached via a distinct node object, growing the tree past the cycle.
 		const tree = engine.callHierarchy(symbol, { depth: 10, direction: "outgoing" });
 
 		const seen = new Set<string>();

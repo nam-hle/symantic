@@ -71,7 +71,7 @@ deliberate region read. They are never required as query input. (See
 ## This is the differentiator, not an implementation detail
 
 It would be easy to read name-addressing as a cosmetic choice over the "real" work of semantic
-analysis. It is the opposite. The semantic engine (ts-morph today, tsgo next) is **table
+analysis. It is the opposite. The semantic engine (the TypeScript 7 compiler) is **table
 stakes** — any serious tool gets resolution right. What a tool built for an agent owns is the
 **output contract**: results sized to a context budget, classified and paginated, and addressed
 so they re-feed. An LSP-over-MCP bridge can be perfectly correct and still cost the agent dearly,

@@ -10,7 +10,7 @@ export default defineConfig({
 			reporter: ["text-summary", "lcov"],
 			include: ["packages/*/src/**/*.ts"],
 			// Barrels, type-only modules, and test fixtures carry no testable logic.
-			exclude: ["**/index.ts", "**/types.ts", "**/symbol-engine.ts", "**/lsp/protocol.ts", "**/__tests__/**"],
+			exclude: ["**/index.ts", "**/types.ts", "**/symbol-engine.ts", "**/__tests__/**"],
 			thresholds: { lines: 80, branches: 70, functions: 80, statements: 80 }
 		}
 	}

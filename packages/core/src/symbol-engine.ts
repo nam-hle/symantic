@@ -1,7 +1,7 @@
 /**
- * The read-only query surface symantic exposes. Implemented by the ts-morph `Engine`
- * (default) and the tsgo `LspEngine` (opt-in). Transport-agnostic; output uses symantic's
- * name-addressed contract (file:Name + 1-based Position), never byte/LSP offsets.
+ * The read-only query surface symantic exposes, implemented by the TypeScript 7 API `Engine`.
+ * Transport-agnostic; output uses symantic's name-addressed contract (file:Name + 1-based
+ * Position), never byte offsets.
  */
 import type {
 	Member,
@@ -48,13 +48,12 @@ export interface SymbolEngine {
 }
 
 /**
- * Async form of SymbolEngine — every method returns a Promise, plus `dispose` for engines
- * that own resources (the tsgo subprocess). This is the single surface CLI + MCP consume, so
- * either engine works through one `await`-everything code path.
+ * Async form of SymbolEngine — every method returns a Promise, plus `dispose` to release the
+ * compiler process. This is the single surface CLI + MCP consume (one `await`-everything path).
  */
 export type AsyncSymbolEngine = {
 	[K in keyof SymbolEngine]: (...args: Parameters<SymbolEngine[K]>) => Promise<ReturnType<SymbolEngine[K]>>;
 } & {
-	/** Release any held resources (subprocess, warm project). No-op for the ts-morph engine. */
+	/** Release the compiler subprocess and the warm project. */
 	dispose(): Promise<void>;
 };

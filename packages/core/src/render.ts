@@ -44,7 +44,7 @@ const KIND_SHORT: Record<string, string> = {
 	InterfaceDeclaration: "iface"
 };
 
-/** Compact a ts-morph getKindName() string to its short label (e.g. InterfaceDeclaration → iface). */
+/** Compact a SyntaxKind name to its short label (e.g. InterfaceDeclaration → iface). */
 export function shortKind(kind: string): string {
 	return KIND_SHORT[kind] ?? kind;
 }

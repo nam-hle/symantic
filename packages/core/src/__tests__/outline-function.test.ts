@@ -1,11 +1,17 @@
 import { fileURLToPath } from "node:url";
 
-import { test, expect, describe } from "vitest";
+import { test, expect, describe, afterAll } from "vitest";
 
 import { Engine } from "../index.js";
 import type { SymbolHandle } from "../index.js";
 
 const tsConfigPath = fileURLToPath(new URL("./fixtures/sample/tsconfig.json", import.meta.url));
+
+const engine = new Engine({ tsConfigPath });
+
+afterAll(() => {
+	engine.dispose();
+});
 
 function resolve(engine: Engine, name: string): SymbolHandle {
 	const result = engine.resolveSymbol(name);
@@ -19,7 +25,6 @@ function resolve(engine: Engine, name: string): SymbolHandle {
 
 describe("outlineFunction", () => {
 	test("returns the top-level statement skeleton of a function body", () => {
-		const engine = new Engine({ tsConfigPath });
 		const symbol = resolve(engine, "src/consumer.ts:totalArea");
 
 		const nodes = engine.outlineFunction(symbol);
@@ -31,7 +36,6 @@ describe("outlineFunction", () => {
 	});
 
 	test("skeletons an arrow function assigned to a const", () => {
-		const engine = new Engine({ tsConfigPath });
 		const symbol = resolve(engine, "src/consumer.ts:averageArea");
 
 		const kinds = engine.outlineFunction(symbol).map((n) => n.kind);
@@ -42,7 +46,6 @@ describe("outlineFunction", () => {
 	});
 
 	test("labels a nested named function declaration with its name", () => {
-		const engine = new Engine({ tsConfigPath });
 		const symbol = resolve(engine, "src/consumer.ts:makeSelectors");
 
 		const nodes = engine.outlineFunction(symbol);
@@ -52,7 +55,6 @@ describe("outlineFunction", () => {
 	});
 
 	test("nests child statements up to the requested depth", () => {
-		const engine = new Engine({ tsConfigPath });
 		const symbol = resolve(engine, "src/consumer.ts:totalArea");
 
 		const flat = engine.outlineFunction(symbol, { depth: 1 });

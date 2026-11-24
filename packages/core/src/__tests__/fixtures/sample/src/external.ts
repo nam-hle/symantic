@@ -1,8 +1,7 @@
-// A named import from an external (non-relative) module. The default engine cannot follow
-// the import boundary to the declaration; addressing `external.ts:Node` should give an honest
-// miss hinting `--engine lsp`, not a bare not-found (#100).
-import type { Node } from "ts-morph";
+// A named import from an external (non-relative) module. Addressing `external.ts:Node`
+// follows the import across the package boundary to its declaration (#100).
+import type { Node } from "typescript/ast";
 
-export function nodeKind(node: Node): string {
-	return node.getKindName();
+export function nodeKind(node: Node): number {
+	return node.kind;
 }

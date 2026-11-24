@@ -1,15 +1,19 @@
 import { fileURLToPath } from "node:url";
 
-import { test, expect, describe } from "vitest";
+import { test, expect, describe, afterAll } from "vitest";
 
 import { Engine } from "../index.js";
 
 const tsConfigPath = fileURLToPath(new URL("./fixtures/sample/tsconfig.json", import.meta.url));
 
+const engine = new Engine({ tsConfigPath });
+
+afterAll(() => {
+	engine.dispose();
+});
+
 describe("outlineFile", () => {
 	test("buckets the top-level declarations of a file", () => {
-		const engine = new Engine({ tsConfigPath });
-
 		const outline = engine.outlineFile("src/shapes.ts");
 
 		expect(outline.classes.map((m) => m.name)).toContain("Circle");
@@ -18,8 +22,6 @@ describe("outlineFile", () => {
 	});
 
 	test("surfaces declarations nested inside namespaces with dotted names", () => {
-		const engine = new Engine({ tsConfigPath });
-
 		const outline = engine.outlineFile("src/nested.ts");
 		const names = outline.interfaces.map((m) => m.name);
 
@@ -29,8 +31,6 @@ describe("outlineFile", () => {
 	});
 
 	test("members carry an addressable qualifiedName", () => {
-		const engine = new Engine({ tsConfigPath });
-
 		const outline = engine.outlineFile("src/nested.ts");
 		const qualifiedNames = outline.interfaces.map((m) => m.qualifiedName);
 
@@ -38,9 +38,7 @@ describe("outlineFile", () => {
 		expect(qualifiedNames).toContain("src/nested.ts:Model::Inner::Node");
 	});
 
-	test("surfaces JSDoc release tags on declarations (ts-morph)", () => {
-		const engine = new Engine({ tsConfigPath });
-
+	test("surfaces JSDoc release tags on declarations", () => {
 		const outline = engine.outlineFile("src/tags.ts");
 		const tagsOf = (name: string): string[] | undefined =>
 			[...outline.functions, ...outline.interfaces, ...outline.variables].find((m) => m.name === name)?.tags;
@@ -54,8 +52,6 @@ describe("outlineFile", () => {
 	});
 
 	test("surfaces re-exports from a barrel file", () => {
-		const engine = new Engine({ tsConfigPath });
-
 		const outline = engine.outlineFile("src/barrel.ts");
 		const names = outline.exports.map((m) => m.name);
 
@@ -66,8 +62,6 @@ describe("outlineFile", () => {
 	});
 
 	test("does not leak function-body locals into the file outline", () => {
-		const engine = new Engine({ tsConfigPath });
-
 		const outline = engine.outlineFile("src/consumer.ts");
 		const allNames = [...outline.functions, ...outline.variables, ...outline.classes].map((m) => m.name);
 
@@ -77,24 +71,18 @@ describe("outlineFile", () => {
 	});
 
 	test("surfaces an arrow-const export as a function", () => {
-		const engine = new Engine({ tsConfigPath });
-
 		const outline = engine.outlineFile("src/consumer.ts");
 
 		expect(outline.functions.map((m) => m.name)).toContain("averageArea");
 	});
 
 	test("surfaces a plain value const in the variables bucket", () => {
-		const engine = new Engine({ tsConfigPath });
-
 		const outline = engine.outlineFile("src/shapes.ts");
 
 		expect(outline.variables.map((m) => m.name)).toContain("helper");
 	});
 
 	test("marks declarations with their exported status", () => {
-		const engine = new Engine({ tsConfigPath });
-
 		const outline = engine.outlineFile("src/shapes.ts");
 		const circle = outline.classes.find((m) => m.name === "Circle");
 		const box = outline.interfaces.find((m) => m.name === "Box");
@@ -104,8 +92,6 @@ describe("outlineFile", () => {
 	});
 
 	test("surfaces generic type parameters of a declaration", () => {
-		const engine = new Engine({ tsConfigPath });
-
 		const outline = engine.outlineFile("src/shapes.ts");
 		const box = outline.interfaces.find((m) => m.name === "Box");
 
@@ -113,8 +99,6 @@ describe("outlineFile", () => {
 	});
 
 	test("flags type-only re-exports distinctly from value re-exports", () => {
-		const engine = new Engine({ tsConfigPath });
-
 		const outline = engine.outlineFile("src/barrel.ts");
 		const shape = outline.exports.find((m) => m.name === "Shape");
 		const circle = outline.exports.find((m) => m.name === "Circle");
@@ -124,8 +108,6 @@ describe("outlineFile", () => {
 	});
 
 	test("includes a signature and position for each declaration", () => {
-		const engine = new Engine({ tsConfigPath });
-
 		const outline = engine.outlineFile("src/shapes.ts");
 		const circle = outline.classes.find((m) => m.name === "Circle");
 
@@ -138,7 +120,6 @@ describe("outlineFile", () => {
 
 describe("outlineSymbol", () => {
 	test("lists the members of a class", () => {
-		const engine = new Engine({ tsConfigPath });
 		const resolved = engine.resolveSymbol("src/shapes.ts:Circle");
 
 		if (resolved.kind !== "symbol") {
@@ -151,7 +132,6 @@ describe("outlineSymbol", () => {
 	});
 
 	test("members carry an addressable qualifiedName", () => {
-		const engine = new Engine({ tsConfigPath });
 		const resolved = engine.resolveSymbol("src/shapes.ts:Circle");
 
 		if (resolved.kind !== "symbol") {
@@ -164,7 +144,6 @@ describe("outlineSymbol", () => {
 	});
 
 	test("lists the members of an interface", () => {
-		const engine = new Engine({ tsConfigPath });
 		const resolved = engine.resolveSymbol("src/shapes.ts:Shape");
 
 		if (resolved.kind !== "symbol") {
@@ -177,7 +156,6 @@ describe("outlineSymbol", () => {
 	});
 
 	test("lists the members of a namespace", () => {
-		const engine = new Engine({ tsConfigPath });
 		const resolved = engine.resolveSymbol("src/nested.ts:Model");
 
 		if (resolved.kind !== "symbol") {

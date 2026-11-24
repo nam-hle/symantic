@@ -1,19 +1,19 @@
 /**
  * Warm-engine pool for the long-lived MCP server. Holds one engine per
- * `(tsconfig, engine-kind)` and manages the three lifecycle hazards of that warmth
+ * tsconfig and manages the three lifecycle hazards of that warmth
  * (epic #84 / M3):
  *
  * - **Bound** — at most `maxEngines` warm engines; the least-recently-used is evicted
- *   and disposed beyond the cap (each warm ts-morph Project is GB-scale).
- * - **Serialize** — ts-morph's `Project` and the LSP client are not reentrant, so every
+ *   and disposed beyond the cap (each warm project holds a compiler process).
+ * - **Serialize** — the compiler session is not reentrant, so every
  *   query method on a given engine is chained per key; concurrent calls never interleave.
- * - **Dispose** — `disposeAll()` releases every engine (and any tsgo subprocess) on shutdown.
+ * - **Dispose** — `disposeAll()` releases every engine (and its compiler subprocess) on shutdown.
  *
  * `createEngine` is injected so tests can supply a fake engine without a real project.
  */
 import { existsSync } from "node:fs";
 
-import type { EngineKind, AsyncSymbolEngine } from "@symantic/core";
+import type { AsyncSymbolEngine } from "@symantic/core";
 import { createEngine as defaultCreateEngine } from "@symantic/core";
 
 import { serialize, clearSerialKey } from "./serialize.js";
@@ -24,14 +24,14 @@ export interface EnginePoolOptions {
 	/** Existence check for the tsconfig path (injectable for tests). Defaults to `existsSync`. */
 	exists?: (path: string) => boolean;
 	/** Engine factory (injectable for tests). Defaults to the core `createEngine`. */
-	createEngine?: (opts: { engine: EngineKind; tsConfigPath: string }) => AsyncSymbolEngine;
+	createEngine?: (opts: { tsConfigPath: string }) => AsyncSymbolEngine;
 }
 
 export class EnginePool {
 	readonly #maxEngines: number;
-	readonly #create: (opts: { engine: EngineKind; tsConfigPath: string }) => AsyncSymbolEngine;
+	readonly #create: (opts: { tsConfigPath: string }) => AsyncSymbolEngine;
 	readonly #exists: (path: string) => boolean;
-	/** Warm engines keyed by `tsconfig::kind`. Map insertion order = LRU order. */
+	/** Warm engines keyed by tsconfig path. Map insertion order = LRU order. */
 	readonly #engines = new Map<string, AsyncSymbolEngine>();
 
 	public constructor(options: EnginePoolOptions = {}) {
@@ -45,7 +45,7 @@ export class EnginePool {
 		return this.#engines.size;
 	}
 
-	#rawEngineFor(key: string, tsConfig: string, kind: EngineKind): AsyncSymbolEngine {
+	#rawEngineFor(key: string, tsConfig: string): AsyncSymbolEngine {
 		const existing = this.#engines.get(key);
 
 		if (existing !== undefined) {
@@ -60,28 +60,36 @@ export class EnginePool {
 			throw new Error(`tsConfig not found: ${tsConfig} (pass an existing path to the project tsconfig.json)`);
 		}
 
-		const engine = this.#create({ engine: kind, tsConfigPath: tsConfig });
+		const engine = this.#create({ tsConfigPath: tsConfig });
 		this.#engines.set(key, engine);
 
-		// Evict LRU (oldest) entries beyond the cap; dispose them and drop their serial chain.
+		// Evict LRU (oldest) entries beyond the cap. Disposal queues behind the engine's pending
+		// calls, so none runs on a half-torn-down engine.
 		while (this.#engines.size > this.#maxEngines) {
 			const oldestKey = this.#engines.keys().next().value as string;
 			const evicted = this.#engines.get(oldestKey)!;
 			this.#engines.delete(oldestKey);
-			clearSerialKey(oldestKey);
-			void evicted.dispose();
+			void serialize(oldestKey, () => evicted.dispose()).then(() => {
+				if (!this.#engines.has(oldestKey)) {
+					clearSerialKey(oldestKey);
+				}
+			});
 		}
 
 		return engine;
 	}
 
 	/**
-	 * The engine for a tsconfig/kind, wrapped so every async method call is serialized on a
-	 * per-engine chain. `dispose` runs directly (the shutdown path); every query serializes.
+	 * The engine for a tsconfig, wrapped so every async method call is serialized on a
+	 * per-engine chain. `dispose` runs directly (the shutdown path); every query serializes,
+	 * refreshes the engine first (files edited between calls), and runs on the pool's *current*
+	 * engine for the tsconfig: a call queued on an evicted engine goes to a fresh pooled one,
+	 * never re-spawning an untracked compiler process.
 	 */
-	public engineFor(tsConfig: string, kind: EngineKind): AsyncSymbolEngine {
-		const key = `${tsConfig}::${kind}`;
-		const engine = this.#rawEngineFor(key, tsConfig, kind);
+	public engineFor(tsConfig: string): AsyncSymbolEngine {
+		const key = tsConfig;
+		const engine = this.#rawEngineFor(key, tsConfig);
+		const current = (): AsyncSymbolEngine => this.#engines.get(key) ?? this.#rawEngineFor(key, tsConfig);
 
 		return new Proxy(engine, {
 			get(target, prop, receiver) {
@@ -95,15 +103,24 @@ export class EnginePool {
 					return value.bind(target);
 				}
 
-				return (...args: unknown[]) => serialize(key, () => Reflect.apply(value, target, args) as Promise<unknown>);
+				return (...args: unknown[]) =>
+					serialize(key, async () => {
+						const live = current() as unknown as Record<string | symbol, (...a: unknown[]) => Promise<unknown>>;
+
+						if (prop !== "refreshIfStale") {
+							await live["refreshIfStale"]?.();
+						}
+
+						return live[prop]!(...args);
+					});
 			}
 		});
 	}
 
-	/** Dispose every warm engine (and any tsgo subprocess) and clear the pool. */
+	/** Dispose every warm engine (and its compiler subprocess) and clear the pool. */
 	public async disposeAll(): Promise<void> {
 		const keys = [...this.#engines.keys()];
-		await Promise.all([...this.#engines.values()].map((e) => e.dispose()));
+		await Promise.all(keys.map((key) => serialize(key, () => this.#engines.get(key)!.dispose())));
 		this.#engines.clear();
 
 		for (const key of keys) {

@@ -1,5 +1,5 @@
 /**
- * Per-key single-flight serializer. ts-morph's `Project` (and the LSP client) are not
+ * Per-key single-flight serializer. the compiler session behind an engine is not
  * reentrant, so concurrent MCP tool calls on the same warm engine must not interleave.
  * `serialize(key, fn)` chains all calls sharing a key so they run one at a time, in order.
  */

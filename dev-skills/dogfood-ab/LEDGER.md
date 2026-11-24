@@ -5,8 +5,8 @@ question** so convergence to grep parity is visible. Rounds before the fixed-que
 used ad-hoc questions and a strict symantic-only arm (no fallback metric) — recorded for
 history, not comparable on fallback count.
 
-Target repos are private and anonymized here (engine A / B / C — A12 `*-engine` packages, same
-client-core/Redux/saga shape). The grep baseline is run once per repo (the first round on it);
+Target repos are private and anonymized here (engine A / B / C — sibling packages with the same
+Redux/saga client shape). The grep baseline is run once per repo (the first round on it);
 later rounds run the symantic arm only, tracking its fallback count converge.
 
 ## Fixed-question series (symantic-preferred arm; fallback count comparable)

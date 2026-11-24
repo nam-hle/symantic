@@ -30,7 +30,7 @@ raw files is to spend fewer tokens for a more precise answer. Verbose-but-correc
 ### 3. Fast
 
 Minimize latency in the agent's query loop. A warm core holds the project in memory across
-calls; the analysis engine is swappable (ts-morph today, tsgo next) so speed improves without
+calls; the analysis engine is swappable (the TypeScript 7 API today) so speed improves without
 changing the contract.
 
 **Why:** latency stalls the agent's loop. Cold-start is the known tax — we attack it (warm

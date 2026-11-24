@@ -8,7 +8,7 @@
  */
 import { runMain, defineCommand } from "citty";
 import { NS_SEP, createEngine } from "@symantic/core";
-import type { EngineKind, SymbolHandle, AsyncSymbolEngine } from "@symantic/core";
+import type { SymbolHandle, AsyncSymbolEngine } from "@symantic/core";
 import {
 	renderSource,
 	renderRegion,
@@ -49,7 +49,6 @@ function output(gain: GainMeta, value: unknown, render: () => string, jsonFlag: 
 }
 
 const tsconfig = { type: "string", description: "Path to the project tsconfig.json (default: nearest one found upward from cwd)" } as const;
-const engine = { type: "string", description: "Engine backend: tsmorph (default) or lsp (tsgo)" } as const;
 const json = { type: "boolean", description: "Emit structured JSON instead of text" } as const;
 
 /**
@@ -57,10 +56,7 @@ const json = { type: "boolean", description: "Emit structured JSON instead of te
  * else the nearest one upward from cwd), disposing it after. The resolved path is passed to
  * the body so the gain ledger records the real project. Clean error + non-zero exit on failure.
  */
-async function withEngine(
-	args: { engine?: string; tsconfig?: string },
-	fn: (engine: AsyncSymbolEngine, tsConfigPath: string) => Promise<void>
-): Promise<void> {
+async function withEngine(args: { tsconfig?: string }, fn: (engine: AsyncSymbolEngine, tsConfigPath: string) => Promise<void>): Promise<void> {
 	let tsConfigPath: string;
 
 	try {
@@ -72,10 +68,9 @@ async function withEngine(
 		return;
 	}
 
-	const engineKind = (args.engine as EngineKind | undefined) ?? "tsmorph";
 	// Warm daemon first (#113) — repeat invocations skip the full project load. Falls back
 	// to a fresh in-process engine when the daemon is disabled or unreachable.
-	const engineInstance = (await daemonEngine(tsConfigPath, engineKind, readVersion())) ?? createEngine({ tsConfigPath, engine: engineKind });
+	const engineInstance = (await daemonEngine(tsConfigPath, readVersion())) ?? createEngine({ tsConfigPath });
 
 	try {
 		if ((await engineInstance.sourceFileCount()) === 0) {
@@ -116,7 +111,7 @@ const fileArg = { required: true, type: "positional", description: "Relative fil
 // ---- top-level: addressing + whole-file facts ----
 
 const resolve = defineCommand({
-	args: { json, engine, tsconfig, symbol: symbolArg },
+	args: { json, tsconfig, symbol: symbolArg },
 	meta: { name: "resolve", description: "Resolve a qualified name to a symbol or candidates" },
 	async run({ args }) {
 		await withEngine(args, async (e, tc) => {
@@ -127,7 +122,7 @@ const resolve = defineCommand({
 });
 
 const imports = defineCommand({
-	args: { json, engine, tsconfig, file: fileArg },
+	args: { json, tsconfig, file: fileArg },
 	meta: { name: "imports", description: "List the import statements of a file" },
 	async run({ args }) {
 		await withEngine(args, async (e, tc) => {
@@ -138,7 +133,7 @@ const imports = defineCommand({
 });
 
 const exportsCmd = defineCommand({
-	args: { json, engine, tsconfig, file: fileArg },
+	args: { json, tsconfig, file: fileArg },
 	meta: { name: "exports", description: "Transitive public surface of an entry file (expands export *)" },
 	async run({ args }) {
 		await withEngine(args, async (e, tc) => {
@@ -152,7 +147,6 @@ const usage = defineCommand({
 	meta: { name: "usage", description: "Usage report: each public symbol of an entry with its reference counts" },
 	args: {
 		json,
-		engine,
 		tsconfig,
 		file: fileArg,
 		"exclude-tests": { type: "boolean", description: "Omit references in test files" },
@@ -170,7 +164,7 @@ const usage = defineCommand({
 
 const viewOutline = defineCommand({
 	meta: { name: "outline", description: "Outline the structure of a file (compact tree; --json for full)" },
-	args: { engine, tsconfig, file: fileArg, json: { type: "boolean", description: "Emit full JSON instead of the compact tree" } },
+	args: { tsconfig, file: fileArg, json: { type: "boolean", description: "Emit full JSON instead of the compact tree" } },
 	async run({ args }) {
 		await withEngine(args, async (e, tc) => {
 			const outline = await e.outlineFile(args.file);
@@ -181,7 +175,7 @@ const viewOutline = defineCommand({
 
 const viewFile = defineCommand({
 	meta: { name: "file", description: "Token-lean whole file: outline, plus --body for each export's source" },
-	args: { json, engine, tsconfig, file: fileArg, body: { type: "boolean", description: "Include each export's source" } },
+	args: { json, tsconfig, file: fileArg, body: { type: "boolean", description: "Include each export's source" } },
 	async run({ args }) {
 		await withEngine(args, async (e, tc) => {
 			const outline = await e.outlineFile(args.file);
@@ -206,7 +200,7 @@ const viewFile = defineCommand({
 });
 
 const viewSymbol = defineCommand({
-	args: { json, engine, tsconfig, symbol: symbolArg },
+	args: { json, tsconfig, symbol: symbolArg },
 	meta: { name: "symbol", description: "Print the exact source of a declaration" },
 	async run({ args }) {
 		await withEngine(args, async (e, tc) => {
@@ -217,7 +211,7 @@ const viewSymbol = defineCommand({
 });
 
 const viewMembers = defineCommand({
-	args: { json, engine, tsconfig, symbol: symbolArg },
+	args: { json, tsconfig, symbol: symbolArg },
 	meta: { name: "members", description: "Outline the members of a class/interface/namespace" },
 	async run({ args }) {
 		await withEngine(args, async (e, tc) => {
@@ -236,7 +230,6 @@ const viewBody = defineCommand({
 	meta: { name: "body", description: "Outline the statement skeleton of a function (--source for the code itself)" },
 	args: {
 		json,
-		engine,
 		tsconfig,
 		symbol: symbolArg,
 		depth: { type: "string", description: "Nesting depth (default 1)" },
@@ -265,7 +258,7 @@ const viewBody = defineCommand({
 
 const viewRegion = defineCommand({
 	meta: { name: "region", description: "Print an addressed line range: file:Lstart-Lend" },
-	args: { json, engine, tsconfig, target: { required: true, type: "positional", description: "file:Lstart-Lend" } },
+	args: { json, tsconfig, target: { required: true, type: "positional", description: "file:Lstart-Lend" } },
 	async run({ args }) {
 		await withEngine(args, async (e, tc) => {
 			const m = /^(.*):(\d+)-(\d+)$/.exec(args.target);
@@ -281,7 +274,7 @@ const viewRegion = defineCommand({
 });
 
 const viewContext = defineCommand({
-	args: { json, engine, tsconfig, symbol: symbolArg },
+	args: { json, tsconfig, symbol: symbolArg },
 	meta: { name: "context", description: "Source + signature + callees + referenced types" },
 	async run({ args }) {
 		await withEngine(args, async (e, tc) => {
@@ -297,7 +290,6 @@ const findSymbol = defineCommand({
 	meta: { name: "symbol", description: "Search for a symbol by name across the whole project" },
 	args: {
 		json,
-		engine,
 		tsconfig,
 		name: { required: true, type: "positional", description: "Symbol name" },
 		path: { type: "string", description: "Keep only hits whose file path contains this substring — scope to a subtree" },
@@ -336,7 +328,7 @@ function looksLikeFile(query: string): boolean {
 }
 
 const findDef = defineCommand({
-	args: { json, engine, tsconfig, symbol: symbolArg },
+	args: { json, tsconfig, symbol: symbolArg },
 	meta: { name: "def", description: "Find the declaration site(s) of a symbol" },
 	async run({ args }) {
 		await withEngine(args, async (e, tc) => {
@@ -350,7 +342,6 @@ const findRefs = defineCommand({
 	meta: { name: "refs", description: "Find usages of a symbol" },
 	args: {
 		json,
-		engine,
 		tsconfig,
 		symbol: symbolArg,
 		cursor: { type: "string", description: "Pagination cursor" },
@@ -373,7 +364,7 @@ const findRefs = defineCommand({
 });
 
 const findImpls = defineCommand({
-	args: { json, engine, tsconfig, symbol: symbolArg },
+	args: { json, tsconfig, symbol: symbolArg },
 	meta: { name: "impls", description: "Find implementations of an interface" },
 	async run({ args }) {
 		await withEngine(args, async (e, tc) => {
@@ -385,7 +376,7 @@ const findImpls = defineCommand({
 
 const findCallers = defineCommand({
 	meta: { name: "callers", description: "Incoming call hierarchy: who calls this symbol" },
-	args: { json, engine, tsconfig, symbol: symbolArg, depth: { type: "string", description: "Levels to walk (default 2)" } },
+	args: { json, tsconfig, symbol: symbolArg, depth: { type: "string", description: "Levels to walk (default 2)" } },
 	async run({ args }) {
 		await withEngine(args, async (e, tc) => {
 			const symbol = await resolveSymbolOrThrow(e, args.symbol);
@@ -397,7 +388,7 @@ const findCallers = defineCommand({
 
 const findCallees = defineCommand({
 	meta: { name: "callees", description: "Outgoing call hierarchy: what this symbol calls" },
-	args: { json, engine, tsconfig, symbol: symbolArg, depth: { type: "string", description: "Levels to walk (default 2)" } },
+	args: { json, tsconfig, symbol: symbolArg, depth: { type: "string", description: "Levels to walk (default 2)" } },
 	async run({ args }) {
 		await withEngine(args, async (e, tc) => {
 			const symbol = await resolveSymbolOrThrow(e, args.symbol);
@@ -429,7 +420,6 @@ const find = defineCommand({
 const daemon = defineCommand({
 	meta: { name: "_daemon", description: "(internal) run the warm-engine daemon for a tsconfig" },
 	args: {
-		engine: { type: "string", description: "Engine backend: tsmorph (default) or lsp (tsgo)" },
 		tsconfig: { type: "string", required: true, description: "Project tsconfig the daemon serves" }
 	},
 	async run({ args }) {
@@ -438,8 +428,7 @@ const daemon = defineCommand({
 		await runDaemonServer({
 			idleMs,
 			version: readVersion(),
-			tsConfigPath: args.tsconfig,
-			engineKind: (args.engine as EngineKind | undefined) ?? "tsmorph"
+			tsConfigPath: args.tsconfig
 		});
 	}
 });
@@ -449,4 +438,16 @@ const main = defineCommand({
 	meta: { name: "symantic", version: readVersion(), description: "Semantic symbol queries for TypeScript" }
 });
 
-void runMain(main);
+/** `--engine` selected a backend before the single-engine rewrite; citty would silently ignore it. */
+function rejectRemovedEngineFlag(argv: string[]): void {
+	if (argv.some((arg) => arg === "--engine" || arg.startsWith("--engine="))) {
+		process.stderr.write("--engine was removed: symantic has a single engine now (drop the flag)\n");
+		process.exitCode = 1;
+	}
+}
+
+rejectRemovedEngineFlag(process.argv.slice(2));
+
+if (process.exitCode !== 1) {
+	void runMain(main);
+}

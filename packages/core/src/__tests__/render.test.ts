@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 
-import { test, expect, describe } from "vitest";
+import { test, expect, afterAll, describe } from "vitest";
 
 import { Engine, renderFileOutline } from "../index.js";
 import type { Candidate, SymbolHandle, UsagesResult, ResolveResult } from "../types.js";
@@ -8,8 +8,14 @@ import { renderResolve, renderHandles, renderReferences, renderCandidates } from
 
 const tsConfigPath = fileURLToPath(new URL("./fixtures/sample/tsconfig.json", import.meta.url));
 
+const engine = new Engine({ tsConfigPath });
+
+afterAll(() => {
+	engine.dispose();
+});
+
 function render(file: string): string {
-	return renderFileOutline(file, new Engine({ tsConfigPath }).outlineFile(file));
+	return renderFileOutline(file, engine.outlineFile(file));
 }
 
 describe("renderFileOutline (compact tree)", () => {

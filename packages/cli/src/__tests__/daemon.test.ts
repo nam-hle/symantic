@@ -9,7 +9,7 @@ import { it, expect, describe, afterEach } from "vitest";
 
 /**
  * CLI daemon tests (issue #113): the CLI keeps a warm engine in a background daemon keyed by
- * (tsconfig, engine kind), so repeat invocations skip the full project load. Each test uses an
+ * tsconfig, so repeat invocations skip the full project load. Each test uses an
  * isolated HOME so daemons (sockets, meta files) never collide with the user's.
  */
 const execFileAsync = promisify(execFile);

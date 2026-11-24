@@ -180,6 +180,17 @@ describe("MCP server integration", () => {
 		expect(result.content[0]!.text).not.toContain("{");
 	}, 20_000);
 
+	it("tools/call rejects the removed engine argument with a clear message", async () => {
+		const outcome = await client
+			.request("tools/call", { name: "resolve", arguments: { engine: "lsp", tsConfig: TSCONFIG, symbol: "src/shapes.ts:makeCircle" } })
+			.then(
+				(value) => JSON.stringify(value),
+				(error: unknown) => JSON.stringify(error)
+			);
+
+		expect(outcome).toContain("engine was removed");
+	}, 20_000);
+
 	it("tools/call resolve with json:true returns kind:symbol", async () => {
 		const result = (await client.request("tools/call", {
 			name: "resolve",

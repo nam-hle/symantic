@@ -7,9 +7,7 @@
 		"typescript",
 		"code-navigation",
 		"ai",
-		"agents",
-		"lsp",
-		"ts-morph"
+		"agents"
 	],
 	"license": "MIT",
 	"author": "Nam Hoang Le",
@@ -27,9 +25,6 @@
 		"dist"
 	],
 	"dependencies": {
-		"ts-morph": "^28.0.0"
-	},
-	"optionalDependencies": {
-		"@typescript/native": "npm:typescript@^7.0.2"
+		"typescript": "7.1.0-dev.20261123.1"
 	}
 }
