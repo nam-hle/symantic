@@ -100,10 +100,35 @@ async function withEngine(args: { tsconfig?: string }, fn: (engine: AsyncSymbolE
 			throw new SymanticError("VALIDATION_ERROR", message, { hint: grammar.join("\n") || undefined, context: { argument: "symbol" } });
 		}
 
+		const missingFile = error instanceof Error ? /^file not found in project: (\S+)/.exec(error.message) : null;
+
+		if (missingFile !== null) {
+			throw new SymanticError("NOT_FOUND", `file not found in project: ${missingFile[1]}`, {
+				context: { file: missingFile[1] },
+				hint: "check the path (relative to the tsconfig directory) and that the tsconfig covers the file"
+			});
+		}
+
 		throw error;
 	} finally {
 		await engineInstance.dispose();
 	}
+}
+
+/** The NOT_FOUND error for an address that did not resolve, with the engine's hint or did-you-mean names. */
+function notFoundError(qualifiedName: string, miss: { hint?: string; suggestions?: string[] }): SymanticError {
+	const suggestions = miss.suggestions ?? [];
+	const suggestionHint = suggestions.length > 0 ? `did you mean: ${suggestions.join(", ")}` : undefined;
+
+	return new SymanticError("NOT_FOUND", `not found: ${qualifiedName}`, {
+		hint: miss.hint ?? suggestionHint,
+		context: { symbol: qualifiedName, suggestions }
+	});
+}
+
+/** An empty result is a valid answer; say how to widen the query, on stderr so stdout stays data. */
+function hintEmpty(text: string): void {
+	process.stderr.write(`hint: ${text}\n`);
 }
 
 /** Resolve a name to a single symbol, or throw NOT_FOUND / AMBIGUOUS carrying the engine's hint or candidates. */
@@ -115,13 +140,7 @@ async function resolveSymbolOrThrow(engineInstance: AsyncSymbolEngine, qualified
 	}
 
 	if (result.kind === "not-found") {
-		const suggestions = result.suggestions ?? [];
-		const suggestionHint = suggestions.length > 0 ? `did you mean: ${suggestions.join(", ")}` : undefined;
-
-		throw new SymanticError("NOT_FOUND", `not found: ${qualifiedName}`, {
-			hint: result.hint ?? suggestionHint,
-			context: { symbol: qualifiedName, suggestions }
-		});
+		throw notFoundError(qualifiedName, result);
 	}
 
 	const addresses = result.candidates.map((candidate) => candidate.qualifiedName);
@@ -143,6 +162,11 @@ const resolve = defineCommand({
 	async run({ args }) {
 		await withEngine(args, async (e, tc) => {
 			const r = await e.resolveSymbol(args.symbol);
+
+			if (r.kind === "not-found") {
+				throw notFoundError(args.symbol, r);
+			}
+
 			output({ tsconfig: tc, op: "resolve" }, r, () => renderResolve(r), args.json);
 		});
 	}
@@ -245,6 +269,18 @@ const viewMembers = defineCommand({
 			// membersByName resolves the name itself and folds a declaration merge
 			// (interface+namespace) into one list, instead of erroring on ambiguity.
 			const members = await e.membersByName(args.symbol);
+
+			// An address that does not resolve must not read as a class with no members.
+			if (members.length === 0) {
+				const resolved = await e.resolveSymbol(args.symbol);
+
+				if (resolved.kind === "not-found") {
+					throw notFoundError(args.symbol, resolved);
+				}
+
+				hintEmpty("the declaration has no members; `view symbol` prints its source");
+			}
+
 			output({ tsconfig: tc, op: "view members" }, members, () => renderMembers(members), args.json);
 		});
 	}
@@ -347,11 +383,24 @@ const findSymbol = defineCommand({
 			});
 			output({ tsconfig: tc, op: "find symbol" }, cands, () => renderCandidates(cands), args.json);
 
-			if (cands.length === 0 && args.json !== true) {
+			if (cands.length === 0) {
+				const filters = [
+					kinds === undefined ? "" : "--kind",
+					args.path === undefined ? "" : "--path",
+					args["exclude-tests"] === true ? "--exclude-tests" : ""
+				];
+				const narrowing = filters.filter((flag) => flag !== "");
+
 				if (looksLikeFile(args.name)) {
-					process.stderr.write(`hint: "${args.name}" looks like a file, not a symbol — try \`view outline <file>\` to list its declarations\n`);
+					hintEmpty(`"${args.name}" looks like a file, not a symbol — try \`view outline <file>\` to list its declarations`);
 				} else if (args.contains !== true) {
-					process.stderr.write(`hint: no exact match for "${args.name}" — retry with --contains for substring search\n`);
+					hintEmpty(`no exact match for "${args.name}" — retry with --contains for substring search`);
+				} else if (narrowing.length === 0) {
+					hintEmpty(`no declaration name contains "${args.name}" — check the spelling`);
+				}
+
+				if (narrowing.length > 0) {
+					hintEmpty(`the filters ${narrowing.join(", ")} narrow the search — drop one to widen it`);
 				}
 			}
 		});
@@ -398,6 +447,14 @@ const findRefs = defineCommand({
 				excludeTests: args["exclude-tests"] === true
 			});
 			output({ tsconfig: tc, op: "find refs" }, usages, () => renderReferences(usages), args.json);
+
+			if (usages.references.length === 0 && usages.total === 0) {
+				hintEmpty(
+					args["exclude-tests"] === true
+						? "no references outside test files — drop --exclude-tests to include them"
+						: "no references in the project — `find def` confirms the declaration, `find callers` traces calls"
+				);
+			}
 		});
 	}
 });
@@ -409,6 +466,10 @@ const findImpls = defineCommand({
 		await withEngine(args, async (e, tc) => {
 			const handles = await e.findImplementations(await resolveSymbolOrThrow(e, args.symbol));
 			output({ tsconfig: tc, op: "find impls" }, handles, () => renderHandles(handles), args.json);
+
+			if (handles.length === 0) {
+				hintEmpty("no implementations in the project — `find refs` shows where the symbol is used");
+			}
 		});
 	}
 });
@@ -423,6 +484,10 @@ const findCallers = defineCommand({
 			const symbol = await resolveSymbolOrThrow(e, args.symbol);
 			const tree = await e.callHierarchy(symbol, { depth, direction: "incoming" });
 			output({ tsconfig: tc, op: "find callers" }, tree, () => renderCallHierarchy(tree), args.json);
+
+			if (tree.length === 0) {
+				hintEmpty("no callers found — raise --depth, or `find refs` for non-call uses");
+			}
 		});
 	}
 });
@@ -437,6 +502,10 @@ const findCallees = defineCommand({
 			const symbol = await resolveSymbolOrThrow(e, args.symbol);
 			const tree = await e.callHierarchy(symbol, { depth, direction: "outgoing" });
 			output({ tsconfig: tc, op: "find callees" }, tree, () => renderCallHierarchy(tree), args.json);
+
+			if (tree.length === 0) {
+				hintEmpty("no callees found — raise --depth, or `view body` for the statements");
+			}
 		});
 	}
 });
