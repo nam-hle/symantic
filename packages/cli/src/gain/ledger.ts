@@ -47,8 +47,8 @@ export interface Aggregate {
 	baselineTokens: number;
 	/** Per-project totals, present only when `byProject` was requested. */
 	byProject?: ProjectTotal[];
-	/** Ops by descending query count: [op, count]. */
-	topOps: Array<[string, number]>;
+	/** Ops by descending query count. */
+	topOps: Array<{ op: string; count: number }>;
 }
 
 /**
@@ -125,7 +125,7 @@ export function aggregate(entries: GainEntry[], opts: { byProject?: boolean } = 
 	}
 
 	const savedTokens = baselineTokens - symanticTokens;
-	const topOps = [...opCounts.entries()].sort((a, b) => b[1] - a[1]);
+	const topOps = [...opCounts.entries()].map(([op, count]) => ({ op, count })).sort((a, b) => b.count - a.count);
 
 	const result: Aggregate = {
 		topOps,

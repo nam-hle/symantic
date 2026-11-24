@@ -22,6 +22,13 @@ symantic find callers src/foo.ts:Bar          # incoming call hierarchy
 symantic gain                                  # estimated token savings to date
 ```
 
+## JSON output
+
+`--json` prints one object. A list command returns `{ items, total }` (plus `nextCursor` when `find refs` is
+cut off, and a `hint` on how to widen the query when `items` is empty); `view outline`, `view context`,
+`view region`, `view file` and `resolve` return their single result object. `gain --json` lists
+`topOps` as `{ op, count }` objects.
+
 ## Errors and exit codes
 
 Results go to stdout; every failure goes to stderr as one line plus a `hint:` line, or with `--json`

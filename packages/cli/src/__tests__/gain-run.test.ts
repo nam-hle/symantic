@@ -83,7 +83,8 @@ describe("gain command run", () => {
 
 	it("emits the machine-readable aggregate with --json", () => {
 		const out = run({ json: true });
-		const agg = JSON.parse(out) as { queries: number };
+		const agg = JSON.parse(out) as { queries: number; topOps: Array<{ op: string; count: number }> };
 		expect(agg.queries).toBe(2);
+		expect(agg.topOps.every((entry) => typeof entry.op === "string" && typeof entry.count === "number")).toBe(true);
 	});
 });

@@ -488,8 +488,8 @@ describe("CLI integration", () => {
 				expect([text.code, json.code]).toEqual([0, 0]);
 				expect(text.stderr).toContain("hint:");
 				expect(text.stderr).toContain(widen);
-				expect(json.stderr).toContain("hint:");
-				expect(() => JSON.parse(json.stdout)).not.toThrow();
+				expect(json.stderr).toBe("");
+				expect(JSON.parse(json.stdout)).toMatchObject({ items: [], total: 0, hint: expect.stringContaining(widen) });
 			},
 			30_000
 		);
@@ -629,8 +629,49 @@ describe("CLI integration", () => {
 			const { code, stdout } = await run(["find", "refs", "--tsconfig", TSCONFIG, "src/shapes.ts:makeCircle", "--json"]);
 
 			expect(code).toBe(0);
-			const parsed = JSON.parse(stdout) as { references: unknown[] };
-			expect(Array.isArray(parsed.references)).toBe(true);
+			const parsed = JSON.parse(stdout) as { items: unknown[]; total: number };
+			expect(Array.isArray(parsed.items)).toBe(true);
+			expect(parsed.total).toBeGreaterThan(0);
+		}, 20_000);
+	});
+
+	describe("--json is one object per command (#136)", () => {
+		const cases: Array<[string, string[]]> = [
+			["find symbol", ["find", "symbol", "makeCircle"]],
+			["find def", ["find", "def", "src/shapes.ts:makeCircle"]],
+			["find refs", ["find", "refs", "src/shapes.ts:makeCircle"]],
+			["find impls", ["find", "impls", "src/shapes.ts:Shape"]],
+			["find callers", ["find", "callers", "src/consumer.ts:averageArea"]],
+			["find callees", ["find", "callees", "src/consumer.ts:averageArea"]],
+			["exports", ["exports", "src/shapes.ts"]],
+			["imports", ["imports", "src/consumer.ts"]],
+			["usage", ["usage", "src/shapes.ts"]],
+			["view members", ["view", "members", "src/shapes.ts:Circle"]],
+			["view symbol", ["view", "symbol", "src/shapes.ts:makeCircle"]],
+			["view body", ["view", "body", "src/consumer.ts:totalArea"]]
+		];
+
+		it.each(cases)(
+			"%s emits { items, total } with a matching count",
+			async (_name, command) => {
+				const { code, stdout } = await run([...command, "--tsconfig", TSCONFIG, "--json"]);
+				const parsed = JSON.parse(stdout) as { items: unknown[]; total: number };
+
+				expect(code).toBe(0);
+				expect(Array.isArray(parsed)).toBe(false);
+				expect(Array.isArray(parsed.items)).toBe(true);
+				expect(parsed.total).toBe(parsed.items.length);
+				expect(parsed.items.length).toBeGreaterThan(0);
+			},
+			20_000
+		);
+
+		it("view outline takes the shared --json flag and stays one object", async () => {
+			const help = await run(["view", "outline", "--help"]);
+			const { stdout } = await run(["view", "outline", "--tsconfig", TSCONFIG, "src/shapes.ts", "--json"]);
+
+			expect(help.stdout).toContain("Emit structured JSON instead of text");
+			expect(Array.isArray(JSON.parse(stdout))).toBe(false);
 		}, 20_000);
 	});
 

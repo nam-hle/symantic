@@ -126,9 +126,29 @@ function notFoundError(qualifiedName: string, miss: { hint?: string; suggestions
 	});
 }
 
-/** An empty result is a valid answer; say how to widen the query, on stderr so stdout stays data. */
-function hintEmpty(text: string): void {
-	process.stderr.write(`hint: ${text}\n`);
+interface ListOptions {
+	/** The command's `--json` flag. */
+	json: boolean | undefined;
+	/** Shown only when the list is empty: how to widen the query. */
+	hint?: string;
+	/** Count of all matches when `items` is a cut-off page of them. */
+	total?: number;
+	extra?: Record<string, unknown>;
+}
+
+/**
+ * Print a list result as one object, `{ items, total, ... }`, so counts, hints and cut-off notes
+ * have a place. An empty list is a valid answer: its widening hint is a `hint` field in JSON and a
+ * stderr line in text, so stdout stays data.
+ */
+function outputList<T>(gain: GainMeta, items: T[], render: () => string, options: ListOptions): void {
+	const hint = items.length === 0 ? options.hint : undefined;
+	const value = { items, total: options.total ?? items.length, ...options.extra, ...(hint === undefined ? {} : { hint }) };
+	output(gain, value, render, options.json);
+
+	if (hint !== undefined && options.json !== true) {
+		process.stderr.write(`hint: ${hint}\n`);
+	}
 }
 
 /** Resolve a name to a single symbol, or throw NOT_FOUND / AMBIGUOUS carrying the engine's hint or candidates. */
@@ -178,7 +198,7 @@ const imports = defineCommand({
 	async run({ args }) {
 		await withEngine(args, async (e, tc) => {
 			const imps = await e.listImports(args.file);
-			output({ tsconfig: tc, op: "imports" }, imps, () => renderImports(imps), args.json);
+			outputList({ tsconfig: tc, op: "imports" }, imps, () => renderImports(imps), { json: args.json });
 		});
 	}
 });
@@ -189,7 +209,7 @@ const exportsCmd = defineCommand({
 	async run({ args }) {
 		await withEngine(args, async (e, tc) => {
 			const surf = await e.publicSurface(args.file);
-			output({ tsconfig: tc, op: "exports" }, surf, () => renderCandidates(surf), args.json);
+			outputList({ tsconfig: tc, op: "exports" }, surf, () => renderCandidates(surf), { json: args.json });
 		});
 	}
 });
@@ -206,7 +226,7 @@ const usage = defineCommand({
 	async run({ args }) {
 		await withEngine(args, async (e, tc) => {
 			const report = await e.usageReport(args.file, { members: args.members === true, excludeTests: args["exclude-tests"] === true });
-			output({ op: "usage", tsconfig: tc }, report, () => renderUsageReport(report), args.json);
+			outputList({ op: "usage", tsconfig: tc }, report, () => renderUsageReport(report), { json: args.json });
 		});
 	}
 });
@@ -214,8 +234,8 @@ const usage = defineCommand({
 // ---- view: read code (structure + source) ----
 
 const viewOutline = defineCommand({
-	meta: { name: "outline", description: "Outline the structure of a file (compact tree; --json for full)" },
-	args: { tsconfig, file: fileArg, json: { type: "boolean", description: "Emit full JSON instead of the compact tree" } },
+	meta: { name: "outline", description: "Outline the structure of a file (compact tree)" },
+	args: { json, tsconfig, file: fileArg },
 	async run({ args }) {
 		await withEngine(args, async (e, tc) => {
 			const outline = await e.outlineFile(args.file);
@@ -256,7 +276,7 @@ const viewSymbol = defineCommand({
 	async run({ args }) {
 		await withEngine(args, async (e, tc) => {
 			const src = await e.symbolSource(await resolveSymbolOrThrow(e, args.symbol));
-			output({ tsconfig: tc, op: "view symbol" }, src, () => renderSource(src), args.json);
+			outputList({ tsconfig: tc, op: "view symbol" }, src, () => renderSource(src), { json: args.json });
 		});
 	}
 });
@@ -277,11 +297,12 @@ const viewMembers = defineCommand({
 				if (resolved.kind === "not-found") {
 					throw notFoundError(args.symbol, resolved);
 				}
-
-				hintEmpty("the declaration has no members; `view symbol` prints its source");
 			}
 
-			output({ tsconfig: tc, op: "view members" }, members, () => renderMembers(members), args.json);
+			outputList({ tsconfig: tc, op: "view members" }, members, () => renderMembers(members), {
+				json: args.json,
+				hint: "the declaration has no members; `view symbol` prints its source"
+			});
 		});
 	}
 });
@@ -306,13 +327,13 @@ const viewBody = defineCommand({
 
 			if (args.source === true) {
 				const src = await e.symbolSource(symbol);
-				output({ tsconfig: tc, op: "view body" }, src, () => renderSource(src), args.json);
+				outputList({ tsconfig: tc, op: "view body" }, src, () => renderSource(src), { json: args.json });
 
 				return;
 			}
 
 			const stmts = await e.outlineFunction(symbol, { depth });
-			output({ tsconfig: tc, op: "view body" }, stmts, () => renderStatements(stmts), args.json);
+			outputList({ tsconfig: tc, op: "view body" }, stmts, () => renderStatements(stmts), { json: args.json });
 
 			if (stmts.length <= SHORT_BODY_STATEMENTS && args.json !== true) {
 				process.stderr.write("hint: short body — `view body --source` (or `view symbol`) shows the code itself\n");
@@ -381,28 +402,22 @@ const findSymbol = defineCommand({
 				excludeTests: args["exclude-tests"] === true,
 				path: typeof args.path === "string" ? args.path : undefined
 			});
-			output({ tsconfig: tc, op: "find symbol" }, cands, () => renderCandidates(cands), args.json);
-
-			if (cands.length === 0) {
-				const filters = [
-					kinds === undefined ? "" : "--kind",
-					args.path === undefined ? "" : "--path",
-					args["exclude-tests"] === true ? "--exclude-tests" : ""
-				];
-				const narrowing = filters.filter((flag) => flag !== "");
-
-				if (looksLikeFile(args.name)) {
-					hintEmpty(`"${args.name}" looks like a file, not a symbol — try \`view outline <file>\` to list its declarations`);
-				} else if (args.contains !== true) {
-					hintEmpty(`no exact match for "${args.name}" — retry with --contains for substring search`);
-				} else if (narrowing.length === 0) {
-					hintEmpty(`no declaration name contains "${args.name}" — check the spelling`);
-				}
-
-				if (narrowing.length > 0) {
-					hintEmpty(`the filters ${narrowing.join(", ")} narrow the search — drop one to widen it`);
-				}
-			}
+			const narrowing = [
+				kinds === undefined ? "" : "--kind",
+				args.path === undefined ? "" : "--path",
+				args["exclude-tests"] === true ? "--exclude-tests" : ""
+			].filter((flag) => flag !== "");
+			const hints = [
+				looksLikeFile(args.name)
+					? `"${args.name}" looks like a file, not a symbol — try \`view outline <file>\` to list its declarations`
+					: args.contains !== true
+						? `no exact match for "${args.name}" — retry with --contains for substring search`
+						: narrowing.length === 0
+							? `no declaration name contains "${args.name}" — check the spelling`
+							: "",
+				narrowing.length > 0 ? `the filters ${narrowing.join(", ")} narrow the search — drop one to widen it` : ""
+			].filter((hint) => hint !== "");
+			outputList({ tsconfig: tc, op: "find symbol" }, cands, () => renderCandidates(cands), { json: args.json, hint: hints.join("; ") });
 		});
 	}
 });
@@ -418,7 +433,7 @@ const findDef = defineCommand({
 	async run({ args }) {
 		await withEngine(args, async (e, tc) => {
 			const handles = await e.findDefinition(await resolveSymbolOrThrow(e, args.symbol));
-			output({ tsconfig: tc, op: "find def" }, handles, () => renderHandles(handles), args.json);
+			outputList({ tsconfig: tc, op: "find def" }, handles, () => renderHandles(handles), { json: args.json });
 		});
 	}
 });
@@ -446,15 +461,15 @@ const findRefs = defineCommand({
 				cursor: cursor === undefined ? undefined : String(cursor),
 				excludeTests: args["exclude-tests"] === true
 			});
-			output({ tsconfig: tc, op: "find refs" }, usages, () => renderReferences(usages), args.json);
-
-			if (usages.references.length === 0 && usages.total === 0) {
-				hintEmpty(
+			outputList({ tsconfig: tc, op: "find refs" }, usages.references, () => renderReferences(usages), {
+				json: args.json,
+				total: usages.total,
+				extra: usages.nextCursor === undefined ? undefined : { nextCursor: usages.nextCursor },
+				hint:
 					args["exclude-tests"] === true
 						? "no references outside test files — drop --exclude-tests to include them"
 						: "no references in the project — `find def` confirms the declaration, `find callers` traces calls"
-				);
-			}
+			});
 		});
 	}
 });
@@ -465,11 +480,10 @@ const findImpls = defineCommand({
 	async run({ args }) {
 		await withEngine(args, async (e, tc) => {
 			const handles = await e.findImplementations(await resolveSymbolOrThrow(e, args.symbol));
-			output({ tsconfig: tc, op: "find impls" }, handles, () => renderHandles(handles), args.json);
-
-			if (handles.length === 0) {
-				hintEmpty("no implementations in the project — `find refs` shows where the symbol is used");
-			}
+			outputList({ tsconfig: tc, op: "find impls" }, handles, () => renderHandles(handles), {
+				json: args.json,
+				hint: "no implementations in the project — `find refs` shows where the symbol is used"
+			});
 		});
 	}
 });
@@ -483,11 +497,10 @@ const findCallers = defineCommand({
 		await withEngine(args, async (e, tc) => {
 			const symbol = await resolveSymbolOrThrow(e, args.symbol);
 			const tree = await e.callHierarchy(symbol, { depth, direction: "incoming" });
-			output({ tsconfig: tc, op: "find callers" }, tree, () => renderCallHierarchy(tree), args.json);
-
-			if (tree.length === 0) {
-				hintEmpty("no callers found — raise --depth, or `find refs` for non-call uses");
-			}
+			outputList({ tsconfig: tc, op: "find callers" }, tree, () => renderCallHierarchy(tree), {
+				json: args.json,
+				hint: "no callers found — raise --depth, or `find refs` for non-call uses"
+			});
 		});
 	}
 });
@@ -501,11 +514,10 @@ const findCallees = defineCommand({
 		await withEngine(args, async (e, tc) => {
 			const symbol = await resolveSymbolOrThrow(e, args.symbol);
 			const tree = await e.callHierarchy(symbol, { depth, direction: "outgoing" });
-			output({ tsconfig: tc, op: "find callees" }, tree, () => renderCallHierarchy(tree), args.json);
-
-			if (tree.length === 0) {
-				hintEmpty("no callees found — raise --depth, or `view body` for the statements");
-			}
+			outputList({ tsconfig: tc, op: "find callees" }, tree, () => renderCallHierarchy(tree), {
+				json: args.json,
+				hint: "no callees found — raise --depth, or `view body` for the statements"
+			});
 		});
 	}
 });
