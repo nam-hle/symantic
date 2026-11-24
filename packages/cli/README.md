@@ -24,10 +24,14 @@ symantic gain                                  # estimated token savings to date
 
 ## JSON output
 
-`--json` prints one object. A list command returns `{ items, total }` (plus `nextCursor` when `find refs` is
-cut off, and a `hint` on how to widen the query when `items` is empty); `view outline`, `view context`,
+`--json` prints one object. A list command returns `{ items, total }` (plus `next` when the list is cut off,
+and a `hint` on how to widen the query when `items` is empty); `view outline`, `view context`,
 `view region`, `view file` and `resolve` return their single result object. `gain --json` lists
 `topOps` as `{ op, count }` objects.
+
+`find symbol`, `find refs`, `exports` and `usage` return at most 50 items (`--limit`, default 50) in a stated
+order, and skip items with `--cursor`. A cut result ends with `50 of 410 shown. Narrow with ..., or raise
+--limit` and a `next:` line (`next` in JSON): the exact command that returns the following page.
 
 ## Errors and exit codes
 

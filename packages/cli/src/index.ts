@@ -32,6 +32,8 @@ import { readVersion } from "./version.js";
 import { recordGain } from "./gain/track.js";
 import { runCli } from "./run-main.js";
 import { SymanticError } from "./errors.js";
+import { DEFAULT_LIMIT, slicePage, continuation } from "./paging.js";
+import type { Continuation, FlagValues } from "./paging.js";
 import { SHORT_KINDS, kindList, positiveInt, nonNegativeInt } from "./flags.js";
 import { resolveTsconfig } from "./tsconfig.js";
 import { daemonEngine } from "./daemon/client.js";
@@ -133,23 +135,54 @@ interface ListOptions {
 	hint?: string;
 	/** Count of all matches when `items` is a cut-off page of them. */
 	total?: number;
-	extra?: Record<string, unknown>;
+	/** Set when `items` is a page that stops short of `total`: the notice and the next page's command. */
+	cut?: Continuation;
 }
 
 /**
- * Print a list result as one object, `{ items, total, ... }`, so counts, hints and cut-off notes
- * have a place. An empty list is a valid answer: its widening hint is a `hint` field in JSON and a
- * stderr line in text, so stdout stays data.
+ * Print a list result as one object, `{ items, total, next? }`, so counts, hints and cut-off notes
+ * have a place. A cut result says so on stdout (a silent cut reads as the whole answer). An empty
+ * list is a valid answer: its widening hint is a `hint` field in JSON and a stderr line in text.
  */
 function outputList<T>(gain: GainMeta, items: T[], render: () => string, options: ListOptions): void {
-	const hint = items.length === 0 ? options.hint : undefined;
-	const value = { items, total: options.total ?? items.length, ...options.extra, ...(hint === undefined ? {} : { hint }) };
-	output(gain, value, render, options.json);
+	const total = options.total ?? items.length;
+	// A cursor past the end of a non-empty list is empty too: its notice doubles as the hint field.
+	const pastEnd = items.length === 0 && total > 0 && options.cut !== undefined;
+	const hint = total === 0 ? options.hint : pastEnd ? options.cut?.note : undefined;
+	const value = { items, total, ...(options.cut === undefined ? {} : { next: options.cut.next }), ...(hint === undefined ? {} : { hint }) };
+	const renderCut = (): string => (options.cut === undefined ? render() : `${render()}\n${options.cut.note}\nnext: ${options.cut.next}`);
+	output(gain, value, renderCut, options.json);
 
-	if (hint !== undefined && options.json !== true) {
+	// Text mode already prints a past-the-end notice on stdout with the cut line.
+	if (hint !== undefined && !pastEnd && options.json !== true) {
 		process.stderr.write(`hint: ${hint}\n`);
 	}
 }
+
+interface PagedListSpec<T> {
+	all: T[];
+	offset: number;
+	limit: number;
+	hint?: string;
+	gain: GainMeta;
+	json: boolean | undefined;
+	render: (items: T[]) => string;
+	call: { words: string[]; flags: FlagValues; narrowWith: string };
+}
+
+/** Print the `[offset, offset + limit)` window of an ordered list, with the cut-off notice and next command. */
+function outputPaged<T>(spec: PagedListSpec<T>): void {
+	const page = slicePage(spec.all, spec.offset, spec.limit);
+	const cut = continuation({ offset: spec.offset, limit: spec.limit, shown: page.items.length, total: page.total }, spec.call);
+	outputList(spec.gain, page.items, () => spec.render(page.items), { cut, json: spec.json, hint: spec.hint, total: page.total });
+}
+
+/** `--limit` flag shared by the list commands; `order` states how the list is sorted. */
+const limitFlag = (order: string) =>
+	({ type: "string", description: `Max items to return, a positive integer (default ${DEFAULT_LIMIT}). Ordered by ${order}` }) as const;
+
+/** `--cursor` flag shared by the list commands: how many items of the ordered list to skip. */
+const cursorFlag = { type: "string", description: "Items to skip, a non-negative integer; the `next` command of a cut result sets it" } as const;
 
 /** Resolve a name to a single symbol, or throw NOT_FOUND / AMBIGUOUS carrying the engine's hint or candidates. */
 async function resolveSymbolOrThrow(engineInstance: AsyncSymbolEngine, qualifiedName: string): Promise<SymbolHandle> {
@@ -204,12 +237,22 @@ const imports = defineCommand({
 });
 
 const exportsCmd = defineCommand({
-	args: { json, tsconfig, file: fileArg },
+	args: { json, tsconfig, file: fileArg, limit: limitFlag("file, line, column of the declaration"), cursor: cursorFlag },
 	meta: { name: "exports", description: "Transitive public surface of an entry file (expands export *)" },
 	async run({ args }) {
+		const offset = nonNegativeInt("cursor", args.cursor) ?? 0;
+		const limit = positiveInt("limit", args.limit) ?? DEFAULT_LIMIT;
+
 		await withEngine(args, async (e, tc) => {
-			const surf = await e.publicSurface(args.file);
-			outputList({ tsconfig: tc, op: "exports" }, surf, () => renderCandidates(surf), { json: args.json });
+			outputPaged({
+				limit,
+				offset,
+				json: args.json,
+				all: await e.publicSurface(args.file),
+				render: renderCandidates,
+				gain: { tsconfig: tc, op: "exports" },
+				call: { words: ["exports", args.file], flags: { tsconfig: args.tsconfig, json: args.json }, narrowWith: "a narrower entry file" }
+			});
 		});
 	}
 });
@@ -220,13 +263,29 @@ const usage = defineCommand({
 		json,
 		tsconfig,
 		file: fileArg,
+		cursor: cursorFlag,
+		limit: limitFlag("the entry file's public surface order: file, line, column of the declaration"),
 		"exclude-tests": { type: "boolean", description: "Omit references in test files" },
 		members: { type: "boolean", description: "Also report class/interface member ref counts (Owner::member), not just top-level exports" }
 	},
 	async run({ args }) {
+		const offset = nonNegativeInt("cursor", args.cursor) ?? 0;
+		const limit = positiveInt("limit", args.limit) ?? DEFAULT_LIMIT;
+
 		await withEngine(args, async (e, tc) => {
-			const report = await e.usageReport(args.file, { members: args.members === true, excludeTests: args["exclude-tests"] === true });
-			outputList({ op: "usage", tsconfig: tc }, report, () => renderUsageReport(report), { json: args.json });
+			outputPaged({
+				limit,
+				offset,
+				json: args.json,
+				render: renderUsageReport,
+				gain: { op: "usage", tsconfig: tc },
+				all: await e.usageReport(args.file, { members: args.members === true, excludeTests: args["exclude-tests"] === true }),
+				call: {
+					narrowWith: "--exclude-tests or a narrower entry file",
+					words: ["usage", args.file],
+					flags: { members: args.members, tsconfig: args.tsconfig, json: args.json, "exclude-tests": args["exclude-tests"] }
+				}
+			});
 		});
 	}
 });
@@ -387,6 +446,8 @@ const findSymbol = defineCommand({
 		path: { type: "string", description: "Keep only hits whose file path contains this substring — scope to a subtree" },
 		"exclude-tests": { type: "boolean", description: "Omit hits in test files — cuts orientation noise on test-heavy projects" },
 		kind: { type: "string", description: `Keep only these short kinds, comma-separated: ${SHORT_KINDS.join("|")}` },
+		limit: limitFlag("file path, then declaration order in the file"),
+		cursor: cursorFlag,
 		contains: {
 			type: "boolean",
 			description: "Match the name as a substring (case-insensitive) — the orientation entry point when you only know part of a name"
@@ -394,6 +455,8 @@ const findSymbol = defineCommand({
 	},
 	async run({ args }) {
 		const kinds = kindList(args.kind);
+		const offset = nonNegativeInt("cursor", args.cursor) ?? 0;
+		const limit = positiveInt("limit", args.limit) ?? DEFAULT_LIMIT;
 
 		await withEngine(args, async (e, tc) => {
 			const cands = await e.searchSymbol(args.name, {
@@ -417,7 +480,27 @@ const findSymbol = defineCommand({
 							: "",
 				narrowing.length > 0 ? `the filters ${narrowing.join(", ")} narrow the search — drop one to widen it` : ""
 			].filter((hint) => hint !== "");
-			outputList({ tsconfig: tc, op: "find symbol" }, cands, () => renderCandidates(cands), { json: args.json, hint: hints.join("; ") });
+			outputPaged({
+				limit,
+				offset,
+				all: cands,
+				json: args.json,
+				render: renderCandidates,
+				hint: hints.join("; "),
+				gain: { tsconfig: tc, op: "find symbol" },
+				call: {
+					words: ["find", "symbol", args.name],
+					narrowWith: "--kind, --path or --exclude-tests",
+					flags: {
+						path: args.path,
+						kind: args.kind,
+						json: args.json,
+						contains: args.contains,
+						tsconfig: args.tsconfig,
+						"exclude-tests": args["exclude-tests"]
+					}
+				}
+			});
 		});
 	}
 });
@@ -444,27 +527,36 @@ const findRefs = defineCommand({
 		json,
 		tsconfig,
 		symbol: symbolArg,
-		cursor: { type: "string", description: "Pagination cursor: a non-negative integer offset" },
-		limit: { type: "string", description: "Max references to return, a positive integer" },
+		cursor: cursorFlag,
+		limit: limitFlag("file path, then line and column"),
 		"exclude-tests": { type: "boolean", description: "Omit references in test files" },
 		context: { type: "enum", options: ["none", "snippet", "block"], description: "Surrounding source per ref (default none)" }
 	},
 	async run({ args }) {
-		const cursor = nonNegativeInt("cursor", args.cursor);
-		const limit = positiveInt("limit", args.limit);
+		const offset = nonNegativeInt("cursor", args.cursor) ?? 0;
+		const limit = positiveInt("limit", args.limit) ?? DEFAULT_LIMIT;
 
 		await withEngine(args, async (e, tc) => {
 			const symbol = await resolveSymbolOrThrow(e, args.symbol);
 			const usages = await e.findUsages(symbol, {
 				limit,
 				context: args.context,
-				cursor: cursor === undefined ? undefined : String(cursor),
+				cursor: String(offset),
 				excludeTests: args["exclude-tests"] === true
 			});
-			outputList({ tsconfig: tc, op: "find refs" }, usages.references, () => renderReferences(usages), {
+			const cut = continuation(
+				{ limit, offset, shown: usages.references.length, total: usages.total },
+				{
+					narrowWith: "--exclude-tests",
+					words: ["find", "refs", args.symbol],
+					flags: { context: args.context, json: args.json, tsconfig: args.tsconfig, "exclude-tests": args["exclude-tests"] }
+				}
+			);
+			// The cut-off line below replaces the core renderer's "(more: cursor N)" suffix.
+			outputList({ tsconfig: tc, op: "find refs" }, usages.references, () => renderReferences({ ...usages, nextCursor: undefined }), {
+				cut,
 				json: args.json,
 				total: usages.total,
-				extra: usages.nextCursor === undefined ? undefined : { nextCursor: usages.nextCursor },
 				hint:
 					args["exclude-tests"] === true
 						? "no references outside test files — drop --exclude-tests to include them"
