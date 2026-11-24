@@ -640,6 +640,132 @@ describe("CLI integration", () => {
 		}, 20_000);
 	});
 
+	describe("help of every command (#140)", () => {
+		/** The subcommand names a help page lists under COMMANDS; empty for a leaf. */
+		const commandsListedIn = (help: string): string[] => {
+			const lines = help.split("\n");
+			const start = lines.indexOf("COMMANDS");
+
+			if (start === -1) {
+				return [];
+			}
+
+			const after = lines.slice(start + 1);
+			const end = after.findIndex((line) => line.startsWith("Use "));
+
+			return after
+				.slice(0, end)
+				.filter((line) => line.trim() !== "")
+				.map((line) => line.trim().split(/\s+/)[0]!);
+		};
+
+		const walk = async (path: string[]): Promise<Array<{ path: string[]; help: string; group: boolean }>> => {
+			const { code, stdout } = await run([...path, "--help"]);
+			expect(code).toBe(0);
+			const children = commandsListedIn(stdout);
+
+			if (children.length === 0) {
+				return [{ path, help: stdout, group: false }];
+			}
+
+			const nested = await Promise.all(children.map((child) => walk([...path, child])));
+
+			return [{ path, help: stdout, group: true }, ...nested.flat()];
+		};
+
+		it("walks the command tree and finds every command", async () => {
+			const pages = await walk([]);
+			const leaves = pages.filter((page) => !page.group).map((page) => page.path.join(" "));
+
+			expect(leaves).toEqual(
+				expect.arrayContaining([
+					"resolve",
+					"imports",
+					"exports",
+					"usage",
+					"gain",
+					"view outline",
+					"view file",
+					"view symbol",
+					"view members",
+					"view body",
+					"view region",
+					"view context",
+					"find symbol",
+					"find def",
+					"find refs",
+					"find impls",
+					"find callers",
+					"find callees"
+				])
+			);
+			expect(leaves).not.toContain("_daemon");
+		}, 120_000);
+
+		it("leads every page with EXAMPLES that name the command and ends it with the exit codes", async () => {
+			const problems: string[] = [];
+
+			for (const { path, help } of await walk([])) {
+				const name = ["symantic", ...path].join(" ");
+				const examples = help.slice(Math.max(help.indexOf("EXAMPLES"), 0), help.indexOf("USAGE"));
+
+				if (!help.includes("EXAMPLES") || help.indexOf("EXAMPLES") > help.indexOf("USAGE")) {
+					problems.push(`${name}: EXAMPLES do not lead`);
+				}
+
+				if (!new RegExp(`^ {2}${name}( |$)`, "m").test(examples)) {
+					problems.push(`${name}: no example runs it`);
+				}
+
+				if (!help.includes("EXIT CODES")) {
+					problems.push(`${name}: no exit codes`);
+				}
+			}
+
+			expect(problems).toEqual([]);
+		}, 120_000);
+
+		it("states on every leaf that it changes nothing, and its --json fields", async () => {
+			const problems: string[] = [];
+
+			for (const { path, help, group } of await walk([])) {
+				const name = ["symantic", ...path].join(" ");
+
+				if (!group && !help.includes("Changes: nothing")) {
+					problems.push(`${name}: no Changes line`);
+				}
+
+				if (!group && !help.includes("--json fields: ")) {
+					problems.push(`${name}: no --json fields`);
+				}
+			}
+
+			expect(problems).toEqual([]);
+		}, 120_000);
+
+		it("marks required arguments on every leaf that has them", async () => {
+			const problems: string[] = [];
+
+			for (const { path, help, group } of await walk([])) {
+				const usageLine = help.split("\n").find((line) => line.startsWith("USAGE"));
+
+				if (!group && usageLine?.includes("<") === true && !help.includes("(Required)")) {
+					problems.push(["symantic", ...path].join(" "));
+				}
+			}
+
+			expect(problems).toEqual([]);
+		}, 120_000);
+
+		it("notes the gain ledger on gain and on queries", async () => {
+			const gainHelp = await run(["gain", "--help"]);
+			const refsHelp = await run(["find", "refs", "--help"]);
+
+			expect(gainHelp.stdout).toContain("Reads the gain ledger");
+			expect(refsHelp.stdout).toContain("gain ledger");
+		}, 20_000);
+	});
+
 	describe("bounded lists (#137)", () => {
 		interface ListJson {
 			next?: string;

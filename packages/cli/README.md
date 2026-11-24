@@ -48,7 +48,9 @@ as one object `{ status, code, message, context, hint }`. Branch on `code` or th
 `context` names the offending input (`flag` and `value`, `symbol`, `tsconfig`); `MISSING_COMMAND` and
 `UNKNOWN_COMMAND` list `availableCommands`, `AMBIGUOUS` lists the `candidates` addresses.
 
-Run `symantic <command> --help` for flags. Full operation set and addressing scheme in the
+Run `symantic <command> --help` for flags: each page leads with runnable examples, marks required
+arguments, states what the command changes (nothing in the project), and lists the `--json` fields and
+the exit codes. Full operation set and addressing scheme in the
 [root README](https://github.com/nam-hle/symantic#readme).
 
 ## License
