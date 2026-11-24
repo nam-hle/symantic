@@ -29,7 +29,7 @@ export function renderSummary(agg: Aggregate): string {
 
 	const topOps = agg.topOps
 		.slice(0, 3)
-		.map(([op, count]) => `${op} (${count})`)
+		.map(({ op, count }) => `${op} (${count})`)
 		.join(", ");
 
 	return [

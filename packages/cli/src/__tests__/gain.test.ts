@@ -85,8 +85,8 @@ describe("ledger", () => {
 
 	it("ranks top ops by count", () => {
 		const agg = aggregate([entry({ op: "find refs" }), entry({ op: "find refs" }), entry({ op: "view outline" })]);
-		expect(agg.topOps[0]).toEqual(["find refs", 2]);
-		expect(agg.topOps[1]).toEqual(["view outline", 1]);
+		expect(agg.topOps[0]).toEqual({ op: "find refs", count: 2 });
+		expect(agg.topOps[1]).toEqual({ op: "view outline", count: 1 });
 	});
 
 	it("groups by project when requested", () => {
