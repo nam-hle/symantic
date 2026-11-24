@@ -1,5 +1,7 @@
 import { runCommand, renderUsage } from "citty";
-import type { CommandDef } from "citty";
+import type { ArgsDef, CommandDef } from "citty";
+
+import { rejectUnknownFlags } from "./flags.js";
 
 /**
  * Own entry point instead of citty's `runMain`: that one prints usage to stdout and colours
@@ -65,11 +67,20 @@ export async function runCli(root: CommandDef, rawArgs: string[]): Promise<void>
 
 	try {
 		// A help flag beside a word that names no command is a failed parse, not a help request.
-		await runCommand(root, { rawArgs: beforeTerminator.some(isHelpFlag) ? rawArgs.filter((arg) => !isHelpFlag(arg)) : rawArgs });
+		const parseArgs = beforeTerminator.some(isHelpFlag)
+			? [...beforeTerminator.filter((arg) => !isHelpFlag(arg)), ...rawArgs.slice(beforeTerminator.length)]
+			: rawArgs;
+		const [target] = usageTarget(root, parseArgs);
+
+		if (target.subCommands === undefined) {
+			rejectUnknownFlags(parseArgs, target.args as ArgsDef | undefined);
+		}
+
+		await runCommand(root, { rawArgs: parseArgs });
 	} catch (error) {
 		process.exitCode = 1;
 
-		if (error instanceof Error && error.name === "CLIError") {
+		if (error instanceof Error && (error.name === "CLIError" || error.name === "UsageError")) {
 			process.stderr.write(`${plain(await renderUsage(helpCommand, helpParent))}\n\n${plain(error.message)}\n`);
 
 			return;
