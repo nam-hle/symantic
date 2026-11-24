@@ -32,11 +32,11 @@ Tests live in `packages/core/src/__tests__/`. Fixtures under `__tests__/fixtures
 - Node 24+ (pinned in `.nvmrc`; `nvm use`), pnpm, ESM throughout. `@types/node` pinned to v24.
 - Task runner: **nadle** (`nadle.config.ts`) — the only runner. Root `package.json` exposes one
   `nadle` script, so invoke every task as `pnpm nadle <task>`; there are no per-task pnpm
-  scripts. Engine: **TypeScript 7 JS API** (`typescript/sync`, pinned to an exact nightly; root `typescript` stays TS 6 for typescript-eslint). Bundler for the cli/mcp bins: **tsup** (one root `tsup.config.ts`).
-- Single root config per concern: `tsconfig.check.json` (whole-repo `noEmit`, used by both
-  ESLint and `typecheck`), `vitest.config.ts`, `eslint.config.ts`, `tsup.config.ts`. tsconfig
+  scripts. Engine: **TypeScript 7 JS API** (`typescript/sync`, pinned to an exact nightly; root and core share the same version). Bundler for the cli/mcp bins: **tsup** (one root `tsup.config.ts`).
+- Single root config per concern: `tsconfig.check.json` (whole-repo `noEmit`, used by
+  `typecheck`), `vitest.config.ts`, `.oxlintrc.json`, `.oxfmtrc.json`, `tsup.config.ts`. tsconfig
   inheritance: `base` (noEmit) → `src` (composite emit, excludes tests) → per-package.
-- Lint/format configs are shared `@nadle/*` packages. Prettier uses **tabs**, printWidth 150.
+- Lint: **oxlint** (`.oxlintrc.json`); format: **oxfmt** (`.oxfmtrc.json`, prettier-compatible: **tabs**, printWidth 150). Import order is not enforced.
 - Run the CLI locally via `./packages/cli/dist/index.js` (pnpm does not link workspace bins),
   or link it globally as `symantic` — see **Dogfooding** below.
 
