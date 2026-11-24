@@ -6,7 +6,7 @@
  * Commands group by agent intent: `view` (read code) and `find` (locate/trace),
  * plus top-level addressing / whole-file facts.
  */
-import { runMain, defineCommand } from "citty";
+import { defineCommand } from "citty";
 import { NS_SEP, createEngine } from "@symantic/core";
 import type { SymbolHandle, AsyncSymbolEngine } from "@symantic/core";
 import {
@@ -28,6 +28,7 @@ import {
 import { gain } from "./gain/command.js";
 import { readVersion } from "./version.js";
 import { recordGain } from "./gain/track.js";
+import { runCli } from "./run-main.js";
 import { resolveTsconfig } from "./tsconfig.js";
 import { daemonEngine } from "./daemon/client.js";
 import { runDaemonServer } from "./daemon/server.js";
@@ -449,5 +450,5 @@ function rejectRemovedEngineFlag(argv: string[]): void {
 rejectRemovedEngineFlag(process.argv.slice(2));
 
 if (process.exitCode !== 1) {
-	void runMain(main);
+	void runCli(main, process.argv.slice(2));
 }

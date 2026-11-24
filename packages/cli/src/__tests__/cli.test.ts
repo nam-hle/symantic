@@ -70,7 +70,66 @@ async function runWithHome(home: string, args: string[]): Promise<{ code: number
 	}
 }
 
+/** Run the CLI with colour-suppressing env vars removed, as a plain pipe would see it. */
+async function runPiped(args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
+	const env: NodeJS.ProcessEnv = { ...process.env, SYMANTIC_NO_DAEMON: "1" };
+	delete env["NO_COLOR"];
+	delete env["TERM"];
+	delete env["TEST"];
+	delete env["CI"];
+
+	try {
+		const { stdout, stderr } = await execFileAsync(process.execPath, [CLI_BIN, ...args], { env, timeout: 20_000 });
+
+		return { stdout, stderr, code: 0 };
+	} catch (error) {
+		const err = error as NodeJS.ErrnoException & { code?: number; stdout?: string; stderr?: string };
+
+		return { stdout: err.stdout ?? "", stderr: err.stderr ?? "", code: typeof err.code === "number" ? err.code : 1 };
+	}
+}
+
+const ESC = String.fromCharCode(27);
+
 describe("CLI integration", () => {
+	describe("output off a terminal", () => {
+		it("prints no ANSI escape on stdout or stderr when piped", async () => {
+			const help = await runPiped(["--help"]);
+			const bogus = await runPiped(["bogus"]);
+
+			expect(help.stdout).not.toContain(ESC);
+			expect(bogus.stdout).not.toContain(ESC);
+			expect(bogus.stderr).not.toContain(ESC);
+		}, 20_000);
+
+		it("sends the usage text of a failed parse to stderr, not stdout", async () => {
+			const { code, stdout, stderr } = await runPiped(["bogus"]);
+
+			expect(code).toBe(1);
+			expect(stdout).toBe("");
+			expect(stderr).toContain("USAGE");
+			expect(stderr).toContain("Unknown command");
+		}, 20_000);
+
+		it("treats --help beside an unknown command as a failed parse, and ignores --help after --", async () => {
+			const bogus = await runPiped(["bogus", "--help"]);
+			const nested = await runPiped(["find", "bogus", "--help"]);
+			const terminated = await runPiped(["find", "--", "--help"]);
+
+			for (const result of [bogus, nested, terminated]) {
+				expect(result.code).not.toBe(0);
+				expect(result.stdout).toBe("");
+			}
+		}, 30_000);
+
+		it("keeps --help usage on stdout with exit 0", async () => {
+			const { code, stdout } = await runPiped(["find", "--help"]);
+
+			expect(code).toBe(0);
+			expect(stdout).toContain("USAGE");
+		}, 20_000);
+	});
+
 	describe("--engine (removed)", () => {
 		it("fails clearly instead of silently ignoring the flag", async () => {
 			const { code, stderr } = await run(["resolve", "--tsconfig", TSCONFIG, "--engine", "lsp", "src/shapes.ts:makeCircle"]);
