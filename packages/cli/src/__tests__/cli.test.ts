@@ -130,6 +130,95 @@ describe("CLI integration", () => {
 		}, 20_000);
 	});
 
+	describe("flag validation", () => {
+		const REFS = ["find", "refs", "--tsconfig", TSCONFIG, "src/shapes.ts:makeCircle"];
+
+		it("rejects an unknown flag instead of ignoring it", async () => {
+			const refs = await run([...REFS, "--bogus"]);
+			const gainRun = await run(["gain", "--bogus"]);
+
+			expect(refs.code).toBe(1);
+			expect(refs.stderr).toContain("Unknown option --bogus");
+			expect(refs.stdout).toBe("");
+			expect(gainRun.code).toBe(1);
+			expect(gainRun.stderr).toContain("Unknown option --bogus");
+		}, 20_000);
+
+		it("still accepts known flags in every spelling", async () => {
+			const spaced = await run([...REFS, "--limit", "1"]);
+			const equals = await run([...REFS, "--limit=1"]);
+			const negated = await run([...REFS, "--no-json"]);
+
+			expect([spaced.code, equals.code, negated.code]).toEqual([0, 0, 0]);
+		}, 30_000);
+
+		it.each(["abc", "0", "-3", "1.5"])(
+			"rejects --limit %s naming the flag and the value",
+			async (value) => {
+				const { code, stdout, stderr } = await run([...REFS, "--limit", value]);
+
+				expect(code).toBe(1);
+				expect(stdout).toBe("");
+				expect(stderr).toContain("--limit");
+				expect(stderr).toContain(`"${value}"`);
+				expect(stderr).toContain("positive integer");
+			},
+			20_000
+		);
+
+		it("rejects a junk --cursor but accepts 0", async () => {
+			const bad = await run([...REFS, "--cursor", "abc"]);
+			const zero = await run([...REFS, "--cursor", "0"]);
+
+			expect(bad.code).toBe(1);
+			expect(bad.stderr).toContain("--cursor");
+			expect(zero.code).toBe(0);
+		}, 20_000);
+
+		it("rejects --depth abc on view body and find callers", async () => {
+			const body = await run(["view", "body", "--tsconfig", TSCONFIG, "src/consumer.ts:totalArea", "--depth", "abc"]);
+			const callers = await run(["find", "callers", "--tsconfig", TSCONFIG, "src/shapes.ts:makeCircle", "--depth", "abc"]);
+
+			expect(body.code).toBe(1);
+			expect(body.stderr).toContain("--depth");
+			expect(callers.code).toBe(1);
+			expect(callers.stderr).toContain("--depth");
+		}, 20_000);
+
+		it("rejects --context outside none|snippet|block and lists the allowed values", async () => {
+			const { code, stderr } = await run([...REFS, "--context", "weird"]);
+
+			expect(code).toBe(1);
+			expect(stderr).toContain("--context");
+			expect(stderr).toContain("weird");
+			expect(stderr).toContain("snippet");
+		}, 20_000);
+
+		it("rejects an unknown --kind and lists the allowed values", async () => {
+			const { code, stderr } = await run(["find", "symbol", "--tsconfig", TSCONFIG, "makeCircle", "--kind", "fn,bogus"]);
+
+			expect(code).toBe(1);
+			expect(stderr).toContain("--kind");
+			expect(stderr).toContain("bogus");
+			expect(stderr).toContain("iface");
+		}, 20_000);
+
+		it("accepts a valid --kind list", async () => {
+			const { code, stdout } = await run(["find", "symbol", "--tsconfig", TSCONFIG, "makeCircle", "--kind", "fn, cls"]);
+
+			expect(code).toBe(0);
+			expect(stdout).toContain("makeCircle");
+		}, 20_000);
+
+		it("shows the allowed values in --help", async () => {
+			const refs = await run(["find", "refs", "--help"]);
+			const symbol = await run(["find", "symbol", "--help"]);
+
+			expect(refs.stdout).toContain("none|snippet|block");
+			expect(symbol.stdout).toContain("iface");
+		}, 20_000);
+	});
+
 	describe("--engine (removed)", () => {
 		it("fails clearly instead of silently ignoring the flag", async () => {
 			const { code, stderr } = await run(["resolve", "--tsconfig", TSCONFIG, "--engine", "lsp", "src/shapes.ts:makeCircle"]);

@@ -29,6 +29,7 @@ import { gain } from "./gain/command.js";
 import { readVersion } from "./version.js";
 import { recordGain } from "./gain/track.js";
 import { runCli } from "./run-main.js";
+import { SHORT_KINDS, kindList, positiveInt, nonNegativeInt } from "./flags.js";
 import { resolveTsconfig } from "./tsconfig.js";
 import { daemonEngine } from "./daemon/client.js";
 import { runDaemonServer } from "./daemon/server.js";
@@ -233,10 +234,12 @@ const viewBody = defineCommand({
 		json,
 		tsconfig,
 		symbol: symbolArg,
-		depth: { type: "string", description: "Nesting depth (default 1)" },
+		depth: { type: "string", description: "Nesting depth, a positive integer (default 1)" },
 		source: { type: "boolean", description: "Print the function source instead of the statement skeleton" }
 	},
 	async run({ args }) {
+		const depth = positiveInt("depth", args.depth);
+
 		await withEngine(args, async (e, tc) => {
 			const symbol = await resolveSymbolOrThrow(e, args.symbol);
 
@@ -247,7 +250,7 @@ const viewBody = defineCommand({
 				return;
 			}
 
-			const stmts = await e.outlineFunction(symbol, { depth: args.depth ? Number(args.depth) : undefined });
+			const stmts = await e.outlineFunction(symbol, { depth });
 			output({ tsconfig: tc, op: "view body" }, stmts, () => renderStatements(stmts), args.json);
 
 			if (stmts.length <= SHORT_BODY_STATEMENTS && args.json !== true) {
@@ -295,15 +298,16 @@ const findSymbol = defineCommand({
 		name: { required: true, type: "positional", description: "Symbol name" },
 		path: { type: "string", description: "Keep only hits whose file path contains this substring — scope to a subtree" },
 		"exclude-tests": { type: "boolean", description: "Omit hits in test files — cuts orientation noise on test-heavy projects" },
-		kind: { type: "string", description: "Keep only these short kinds, comma-separated (e.g. cls,iface,fn,ns,const,type,enum)" },
+		kind: { type: "string", description: `Keep only these short kinds, comma-separated: ${SHORT_KINDS.join("|")}` },
 		contains: {
 			type: "boolean",
 			description: "Match the name as a substring (case-insensitive) — the orientation entry point when you only know part of a name"
 		}
 	},
 	async run({ args }) {
+		const kinds = kindList(args.kind);
+
 		await withEngine(args, async (e, tc) => {
-			const kinds = typeof args.kind === "string" && args.kind.length > 0 ? args.kind.split(",").map((k) => k.trim()) : undefined;
 			const cands = await e.searchSymbol(args.name, {
 				kinds,
 				contains: args.contains,
@@ -345,19 +349,22 @@ const findRefs = defineCommand({
 		json,
 		tsconfig,
 		symbol: symbolArg,
-		cursor: { type: "string", description: "Pagination cursor" },
-		limit: { type: "string", description: "Max references to return" },
+		cursor: { type: "string", description: "Pagination cursor: a non-negative integer offset" },
+		limit: { type: "string", description: "Max references to return, a positive integer" },
 		"exclude-tests": { type: "boolean", description: "Omit references in test files" },
-		context: { type: "string", description: "Surrounding source per ref: none (default) | snippet | block" }
+		context: { type: "enum", options: ["none", "snippet", "block"], description: "Surrounding source per ref (default none)" }
 	},
 	async run({ args }) {
+		const cursor = nonNegativeInt("cursor", args.cursor);
+		const limit = positiveInt("limit", args.limit);
+
 		await withEngine(args, async (e, tc) => {
 			const symbol = await resolveSymbolOrThrow(e, args.symbol);
 			const usages = await e.findUsages(symbol, {
-				cursor: args.cursor,
-				excludeTests: args["exclude-tests"] === true,
-				limit: args.limit ? Number(args.limit) : undefined,
-				context: args.context as "none" | "snippet" | "block" | undefined
+				limit,
+				context: args.context,
+				cursor: cursor === undefined ? undefined : String(cursor),
+				excludeTests: args["exclude-tests"] === true
 			});
 			output({ tsconfig: tc, op: "find refs" }, usages, () => renderReferences(usages), args.json);
 		});
@@ -377,11 +384,13 @@ const findImpls = defineCommand({
 
 const findCallers = defineCommand({
 	meta: { name: "callers", description: "Incoming call hierarchy: who calls this symbol" },
-	args: { json, tsconfig, symbol: symbolArg, depth: { type: "string", description: "Levels to walk (default 2)" } },
+	args: { json, tsconfig, symbol: symbolArg, depth: { type: "string", description: "Levels to walk, a positive integer (default 2)" } },
 	async run({ args }) {
+		const depth = positiveInt("depth", args.depth);
+
 		await withEngine(args, async (e, tc) => {
 			const symbol = await resolveSymbolOrThrow(e, args.symbol);
-			const tree = await e.callHierarchy(symbol, { direction: "incoming", depth: args.depth ? Number(args.depth) : undefined });
+			const tree = await e.callHierarchy(symbol, { depth, direction: "incoming" });
 			output({ tsconfig: tc, op: "find callers" }, tree, () => renderCallHierarchy(tree), args.json);
 		});
 	}
@@ -389,11 +398,13 @@ const findCallers = defineCommand({
 
 const findCallees = defineCommand({
 	meta: { name: "callees", description: "Outgoing call hierarchy: what this symbol calls" },
-	args: { json, tsconfig, symbol: symbolArg, depth: { type: "string", description: "Levels to walk (default 2)" } },
+	args: { json, tsconfig, symbol: symbolArg, depth: { type: "string", description: "Levels to walk, a positive integer (default 2)" } },
 	async run({ args }) {
+		const depth = positiveInt("depth", args.depth);
+
 		await withEngine(args, async (e, tc) => {
 			const symbol = await resolveSymbolOrThrow(e, args.symbol);
-			const tree = await e.callHierarchy(symbol, { direction: "outgoing", depth: args.depth ? Number(args.depth) : undefined });
+			const tree = await e.callHierarchy(symbol, { depth, direction: "outgoing" });
 			output({ tsconfig: tc, op: "find callees" }, tree, () => renderCallHierarchy(tree), args.json);
 		});
 	}
