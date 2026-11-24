@@ -1,6 +1,7 @@
 import { runCommand, renderUsage } from "citty";
 import type { ArgsDef, CommandDef } from "citty";
 
+import { composeHelp } from "./help.js";
 import { rejectUnknownFlags, rejectRemovedFlags } from "./flags.js";
 import { SymanticError, toEnvelope, exitClassOf, renderEnvelope } from "./errors.js";
 
@@ -21,15 +22,6 @@ const stripColour = (text: string): string => text.replace(ANSI_SEQUENCE, "");
 export const plain = (text: string): string => (colourEnabled() ? text : stripColour(text));
 
 const isHelpFlag = (arg: string): boolean => arg === "--help" || arg === "-h";
-
-const EXIT_CODE_TABLE = [
-	"EXIT CODES",
-	"",
-	"  0  success (a query that matches nothing is still success)",
-	"  1  unexpected error",
-	"  2  usage error: unknown flag or command, bad value, ambiguous address",
-	"  3  not found: the address, file or project does not exist"
-].join("\n");
 
 interface UsageTarget {
 	/** Command names walked from the root, e.g. ["find", "refs"]. */
@@ -154,7 +146,8 @@ export async function runCli(root: CommandDef, rawArgs: string[]): Promise<void>
 
 		// A help flag beside a word that names no command is a failed parse, not a help request.
 		if (helpRequested && target.unmatched === undefined) {
-			process.stdout.write(`${plain(await renderUsage(target.command, target.parent))}\n\n${EXIT_CODE_TABLE}\n`);
+			const usage = plain(await renderUsage(target.command, target.parent));
+			process.stdout.write(`${composeHelp(usage, target.path, target.command.subCommands === undefined)}\n`);
 
 			return;
 		}
