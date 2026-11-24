@@ -25,13 +25,13 @@
 	"devDependencies": {
 		"@nadle/ts-config": "^0.0.2",
 		"@types/node": "^24.0.0",
-		"@vitest/coverage-v8": "^4.1.8",
+		"@vitest/coverage-v8": "^4.1.12",
 		"nadle": "https://pkg.pr.new/nadle@3d83b63",
 		"oxfmt": "^0.80.0",
 		"oxlint": "^1.95.0",
 		"tsup": "^8.0.0",
 		"typescript": "7.1.0-dev.20261123.1",
 		"vite": "^8.3.8",
-		"vitest": "^4.1.8"
+		"vitest": "^4.1.12"
 	}
 }
