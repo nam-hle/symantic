@@ -413,13 +413,86 @@ describe("CLI integration", () => {
 			expect(result.kind).toBe("symbol");
 		}, 20_000);
 
-		it("returns kind:not-found for an unknown symbol (exit 0)", async () => {
-			const { code, stdout } = await run(["resolve", "--tsconfig", TSCONFIG, "src/shapes.ts:Nope"]);
+		it("reports an unknown symbol as NOT_FOUND, exit 3, nothing on stdout", async () => {
+			const { code, stdout, stderr } = await run(["resolve", "--tsconfig", TSCONFIG, "src/shapes.ts:Nope"]);
 
-			// resolve always emits text and exits 0 — it's a query result, not an error
-			expect(code).toBe(0);
-			expect(stdout).toContain("not found");
+			expect([code, stdout]).toEqual([3, ""]);
+			expect(stderr).toContain("not found");
 		}, 20_000);
+	});
+
+	describe("not found versus empty (#139)", () => {
+		const MISSING = "src/shapes.ts:makeCirle";
+
+		it.each([
+			["resolve", ["resolve"]],
+			["view members", ["view", "members"]],
+			["view symbol", ["view", "symbol"]],
+			["find refs", ["find", "refs"]],
+			["find def", ["find", "def"]],
+			["find impls", ["find", "impls"]],
+			["find callers", ["find", "callers"]]
+		])(
+			"%s on a mistyped symbol is NOT_FOUND with did-you-mean, exit 3",
+			async (_name, command) => {
+				const json = await run([...command, "--tsconfig", TSCONFIG, MISSING, "--json"]);
+				const text = await run([...command, "--tsconfig", TSCONFIG, MISSING]);
+				const envelope = JSON.parse(json.stderr) as { code: string; context: { suggestions: string[] } };
+
+				expect([json.code, text.code]).toEqual([3, 3]);
+				expect(json.stdout).toBe("");
+				expect(text.stdout).toBe("");
+				expect(envelope.code).toBe("NOT_FOUND");
+				expect(envelope.context.suggestions.join(" ")).toContain("makeCircle");
+				expect(text.stderr).toContain("did you mean");
+				expect(text.stderr).toContain("makeCircle");
+			},
+			30_000
+		);
+
+		it.each([
+			["view outline", ["view", "outline"]],
+			["view file", ["view", "file"]],
+			["imports", ["imports"]],
+			["exports", ["exports"]],
+			["usage", ["usage"]]
+		])(
+			"%s on a file outside the project is NOT_FOUND, exit 3",
+			async (_name, command) => {
+				const { code, stdout, stderr } = await run([...command, "--tsconfig", TSCONFIG, "src/nope.ts", "--json"]);
+
+				expect([code, stdout]).toEqual([3, ""]);
+				expect(JSON.parse(stderr)).toMatchObject({ code: "NOT_FOUND", context: { file: "src/nope.ts" } });
+			},
+			20_000
+		);
+
+		it("view members on a real symbol still succeeds", async () => {
+			const { code, stdout } = await run(["view", "members", "--tsconfig", TSCONFIG, "src/shapes.ts:Circle"]);
+
+			expect(code).toBe(0);
+			expect(stdout).toContain("area");
+		}, 20_000);
+
+		it.each([
+			["find callers", ["find", "callers", "src/consumer.ts:describeArea"], "--depth"],
+			["find callees", ["find", "callees", "src/shapes.ts:Box"], "--depth"],
+			["find impls", ["find", "impls", "src/shapes.ts:Box"], "find refs"],
+			["find symbol", ["find", "symbol", "Nopething"], "--contains"]
+		])(
+			"%s that matches nothing exits 0 and hints how to widen, in text and json",
+			async (_name, command, widen) => {
+				const text = await run([...command, "--tsconfig", TSCONFIG]);
+				const json = await run([...command, "--tsconfig", TSCONFIG, "--json"]);
+
+				expect([text.code, json.code]).toEqual([0, 0]);
+				expect(text.stderr).toContain("hint:");
+				expect(text.stderr).toContain(widen);
+				expect(json.stderr).toContain("hint:");
+				expect(() => JSON.parse(json.stdout)).not.toThrow();
+			},
+			30_000
+		);
 	});
 
 	describe("def (definition)", () => {
