@@ -130,6 +130,21 @@ describe("planRename + applyEditPlan against the language server", () => {
 		}
 	}, 30_000);
 
+	it("renames in TSX files without reading JSX as type syntax", async () => {
+		const dir = copyFixture();
+		writeFileSync(
+			join(dir, "tsconfig.json"),
+			JSON.stringify({ include: ["src"], compilerOptions: { jsx: "preserve", strict: true, module: "nodenext" } })
+		);
+		writeFileSync(join(dir, "src/view.tsx"), "export const Foo = () => <div>x</div>;\n");
+		writeFileSync(join(dir, "src/page.tsx"), 'import { Foo } from "./view.js";\nexport const page = <Foo />;\n');
+		const position = namePosition(dir, "src/view.tsx:Foo");
+
+		applyEditPlan(await planRename({ baseDir: dir, newName: "Baz", file: "src/view.tsx", position }), { baseDir: dir });
+
+		expect(read(dir, "src/page.tsx")).toContain("<Baz />");
+	}, 30_000);
+
 	it("refuses a rename onto an existing module-level name and lists the new errors", async () => {
 		const dir = copyFixture();
 		writeFileSync(join(dir, "src/lib.ts"), "export const foo = 1;\nexport const bar = 2;\n");

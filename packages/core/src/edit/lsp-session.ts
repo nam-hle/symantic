@@ -31,6 +31,13 @@ export class LspError extends Error {
 	}
 }
 
+/** The LSP language of a file; JSX syntax only parses under the `*react` ids. */
+export function languageIdOf(path: string): string {
+	const extension = /\.([cm]?[jt]sx?)$/.exec(path)?.[1] ?? "ts";
+
+	return { tsx: "typescriptreact", jsx: "javascriptreact", js: "javascript", mjs: "javascript", cjs: "javascript" }[extension] ?? "typescript";
+}
+
 /** The `tsc` launcher of the pinned `typescript` package this library depends on. */
 export function tscBinPath(): string {
 	const require = createRequire(import.meta.url);
@@ -107,7 +114,7 @@ export class LspSession {
 
 	/** Tell the server a document's current text; it answers from this instead of the disk. */
 	public openDocument(path: string, text: string): void {
-		this.notify("textDocument/didOpen", { textDocument: { uri: pathToFileUri(path), languageId: "typescript", version: 1, text } });
+		this.notify("textDocument/didOpen", { textDocument: { uri: pathToFileUri(path), languageId: languageIdOf(path), version: 1, text } });
 	}
 
 	/** Replace a document's text in the server, as an editor would after applying an edit. */
