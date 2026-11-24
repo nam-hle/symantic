@@ -635,6 +635,103 @@ describe("CLI integration", () => {
 		}, 20_000);
 	});
 
+	describe("bounded lists (#137)", () => {
+		interface ListJson {
+			next?: string;
+			total: number;
+			items: Array<Record<string, unknown>>;
+		}
+
+		const lists: Array<[string, string[]]> = [
+			["find symbol", ["find", "symbol", "e", "--contains"]],
+			["find refs", ["find", "refs", "src/shapes.ts:makeCircle"]],
+			["exports", ["exports", "src/barrel.ts"]],
+			["usage", ["usage", "src/shapes.ts"]]
+		];
+
+		it.each([["find", "symbol"], ["find", "refs"], ["exports"], ["usage"]])(
+			"%s declares its default limit and order in --help",
+			async (...words) => {
+				const { stdout } = await run([...words.filter((word) => typeof word === "string"), "--help"]);
+
+				expect(stdout).toContain("default 50");
+				expect(stdout).toMatch(/ordered by/i);
+			},
+			20_000
+		);
+
+		it.each(lists)(
+			"%s cut by --limit 1 says so and offers a runnable next command",
+			async (_name, command) => {
+				const text = await run([...command, "--tsconfig", TSCONFIG, "--limit", "1"]);
+				const json = await run([...command, "--tsconfig", TSCONFIG, "--limit", "1", "--json"]);
+				const parsed = JSON.parse(json.stdout) as ListJson;
+
+				expect(text.code).toBe(0);
+				expect(text.stdout).toMatch(/1 of \d+ shown\. Narrow with .+, or raise --limit/);
+				expect(parsed.items).toHaveLength(1);
+				expect(parsed.total).toBeGreaterThan(1);
+				expect(parsed.next).toMatch(/^symantic .* --cursor 1 --limit 1/);
+				expect(parsed.next).toContain(command[0]);
+				expect(text.stdout).toContain(`next: ${parsed.next?.replace(" --json", "")}`);
+			},
+			30_000
+		);
+
+		it.each(lists)(
+			"%s: following next walks the whole list in order, without gaps",
+			async (_name, command) => {
+				const all = JSON.parse((await run([...command, "--tsconfig", TSCONFIG, "--limit", "1000", "--json"])).stdout) as ListJson;
+				const collected: unknown[] = [];
+				let page = JSON.parse((await run([...command, "--tsconfig", TSCONFIG, "--limit", "1", "--json"])).stdout) as ListJson;
+
+				collected.push(...page.items);
+
+				while (page.next !== undefined && collected.length < all.total) {
+					const args = page.next.split(" ").slice(1);
+					page = JSON.parse((await run(args)).stdout) as ListJson;
+					collected.push(...page.items);
+				}
+
+				expect(all.next).toBeUndefined();
+				expect(collected).toEqual(all.items);
+			},
+			60_000
+		);
+
+		it("find symbol and find refs return a deterministic order: by file, then position", async () => {
+			const symbols = JSON.parse(
+				(await run(["find", "symbol", "e", "--contains", "--tsconfig", TSCONFIG, "--limit", "1000", "--json"])).stdout
+			) as ListJson;
+			const refs = JSON.parse((await run(["find", "refs", "src/shapes.ts:Circle", "--tsconfig", TSCONFIG, "--json"])).stdout) as ListJson;
+			const positionKey = (item: Record<string, unknown>): string => {
+				const position = item["position"] as { file: string; line: number; col: number };
+
+				return `${position.file}\u0000${String(position.line).padStart(8, "0")}\u0000${String(position.col).padStart(8, "0")}`;
+			};
+
+			for (const list of [symbols, refs]) {
+				const keys = list.items.map(positionKey);
+				expect(keys).toEqual([...keys].sort());
+			}
+		}, 30_000);
+
+		it("shows no cut-off note when everything fits", async () => {
+			const text = await run(["find", "refs", "--tsconfig", TSCONFIG, "src/shapes.ts:makeCircle"]);
+			const json = JSON.parse((await run(["find", "refs", "--tsconfig", TSCONFIG, "src/shapes.ts:makeCircle", "--json"])).stdout) as ListJson;
+
+			expect(text.stdout).not.toContain("shown.");
+			expect(json.next).toBeUndefined();
+		}, 20_000);
+
+		it("rejects a junk --cursor on find symbol", async () => {
+			const { code, stderr } = await run(["find", "symbol", "e", "--tsconfig", TSCONFIG, "--cursor", "abc", "--json"]);
+
+			expect(code).toBe(2);
+			expect(JSON.parse(stderr)).toMatchObject({ code: "VALIDATION_ERROR", context: { flag: "cursor", value: "abc" } });
+		}, 20_000);
+	});
+
 	describe("--json is one object per command (#136)", () => {
 		const cases: Array<[string, string[]]> = [
 			["find symbol", ["find", "symbol", "makeCircle"]],
