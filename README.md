@@ -85,7 +85,7 @@ Commands group by intent: **`view`** (read code) and **`find`** (locate / trace)
 | `view members <file>:Name`          | members of a class / interface / namespace                                      |
 | `view context <file>:Name`          | source + signature + callees + referenced types                                 |
 | `view body <file>:Name`             | statement-level skeleton of a function body                                     |
-| `view region <file>:Lstart-Lend`    | an addressed line range                                                         |
+| `view region <file>:start-end`      | an addressed line range                                                         |
 | `find def <file>:Name`              | all declaration sites (handles declaration merging)                             |
 | `find refs <file>:Name`             | usages, classified by kind (import / call / type-ref / read / write), paginated |
 | `find impls <file>:Name`            | classes implementing an interface                                               |

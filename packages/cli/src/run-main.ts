@@ -114,11 +114,30 @@ function fromCittyError(error: Error & { code?: string }, target: UsageTarget): 
 	return new SymanticError("INTERNAL", message);
 }
 
+/** Whether --json is on: the last of --json, --json=true|1 (on) and --no-json, --json=false|0 (off) wins. */
+function jsonRequested(rawArgs: string[]): boolean {
+	let on = false;
+
+	for (const arg of rawArgs) {
+		if (arg === "--") {
+			break;
+		}
+
+		if (arg === "--json" || arg === "--json=true" || arg === "--json=1") {
+			on = true;
+		} else if (arg === "--no-json" || arg === "--json=false" || arg === "--json=0") {
+			on = false;
+		}
+	}
+
+	return on;
+}
+
 /** Write the failure to stderr as a JSON envelope under --json, else as a line plus hint; set the exit class. */
 function reportFailure(error: unknown, target: UsageTarget, rawArgs: string[]): void {
 	const cittyFailure = error instanceof Error && error.name === "CLIError";
 	const envelope = toEnvelope(cittyFailure ? fromCittyError(error as Error & { code?: string }, target) : error);
-	const jsonMode = rawArgs.includes("--json");
+	const jsonMode = jsonRequested(rawArgs);
 
 	process.stderr.write(`${jsonMode ? JSON.stringify(envelope) : plain(renderEnvelope(envelope))}\n`);
 	process.exitCode = exitClassOf(envelope);
@@ -146,9 +165,7 @@ export async function runCli(root: CommandDef, rawArgs: string[]): Promise<void>
 			return;
 		}
 
-		const parseArgs = helpRequested
-			? [...beforeTerminator.filter((arg) => !isHelpFlag(arg)), ...rawArgs.slice(beforeTerminator.length)]
-			: rawArgs;
+		const parseArgs = helpRequested ? [...beforeTerminator.filter((arg) => !isHelpFlag(arg)), ...rawArgs.slice(beforeTerminator.length)] : rawArgs;
 
 		if (target.command.subCommands === undefined) {
 			rejectUnknownFlags(parseArgs, target.command.args as ArgsDef | undefined);

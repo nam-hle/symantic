@@ -275,6 +275,70 @@ describe("CLI integration", () => {
 			expect(envelopeOf(stderr)).toMatchObject({ code: "VALIDATION_ERROR", context: { argument: "target", value: "src/shapes.ts:bad" } });
 		}, 20_000);
 
+		it.each([
+			["resolve", ["resolve", "noColon"]],
+			["resolve with a bad index", ["resolve", "src/shapes.ts:Circle#abc"]],
+			["view symbol with an empty segment", ["view", "symbol", "src/shapes.ts:Circle::#x"]]
+		])(
+			"reports a malformed qualified name (%s) as VALIDATION_ERROR with the syntax as hint",
+			async (_name, command) => {
+				const direct = await run([...command, "--tsconfig", TSCONFIG, "--json"]);
+
+				expect(direct.code).toBe(2);
+				expect(envelopeOf(direct.stderr)).toMatchObject({ code: "VALIDATION_ERROR" });
+				expect(envelopeOf(direct.stderr).hint).toContain('syntax: "relativePath:Name"');
+				expect(envelopeOf(direct.stderr).message).not.toContain("syntax:");
+			},
+			20_000
+		);
+
+		it.each(["50-10", "0-5", "5-0"])(
+			"reports the region range %s as VALIDATION_ERROR naming the value",
+			async (range) => {
+				const { code, stderr } = await run(["view", "region", "--tsconfig", TSCONFIG, `src/shapes.ts:${range}`, "--json"]);
+
+				expect(code).toBe(2);
+				expect(envelopeOf(stderr)).toMatchObject({ code: "VALIDATION_ERROR", context: { argument: "target", value: `src/shapes.ts:${range}` } });
+			},
+			20_000
+		);
+
+		it("words the region address as file:start-end", async () => {
+			const bad = await run(["view", "region", "--tsconfig", TSCONFIG, "src/shapes.ts:bad"]);
+			const help = await run(["view", "region", "--help"]);
+
+			expect(bad.stderr).toContain("src/a.ts:10-30");
+			expect(`${help.stdout}${bad.stderr}`).not.toContain("Lstart-Lend");
+		}, 20_000);
+
+		it.each([["--json=true"], ["--json=1"], ["--json"]])(
+			"emits the error as JSON under %s, as the success path would",
+			async (flag) => {
+				const { stderr } = await run(["find", "refs", "src/shapes.ts:Circle", "--tsconfig", TSCONFIG, "--limit", "abc", flag]);
+
+				expect(envelopeOf(stderr)).toMatchObject({ code: "VALIDATION_ERROR" });
+			},
+			20_000
+		);
+
+		it.each([["--json=false"], ["--json=0"], ["--no-json"]])(
+			"emits the error as text under %s",
+			async (flag) => {
+				const { stderr } = await run(["find", "refs", "src/shapes.ts:Circle", "--tsconfig", TSCONFIG, "--limit", "abc", flag]);
+
+				expect(stderr).toMatch(/^error: /);
+			},
+			20_000
+		);
+
+		it("answers --help beside an unknown command with UNKNOWN_COMMAND and availableCommands", async () => {
+			const { code, stdout, stderr } = await run(["find", "bogus", "--help", "--json"]);
+
+			expect([code, stdout]).toEqual([2, ""]);
+			expect(envelopeOf(stderr)).toMatchObject({ code: "UNKNOWN_COMMAND", context: { command: "bogus" } });
+			expect(envelopeOf(stderr).context["availableCommands"]).toContain("refs");
+		}, 20_000);
+
 		it("reports a bad flag value and an unknown flag with the offending input", async () => {
 			const limit = await run(["find", "refs", "src/a.ts:A", "--limit", "abc", "--json"]);
 			const unknown = await run(["find", "refs", "src/a.ts:A", "--bogus", "--json"]);

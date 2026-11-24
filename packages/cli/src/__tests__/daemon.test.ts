@@ -120,6 +120,16 @@ describe("CLI daemon", () => {
 		expect(after.stdout).toContain("freshlyAdded");
 	}, 60_000);
 
+	it("keeps the error type across the daemon socket: a malformed name is VALIDATION_ERROR", async () => {
+		const home = freshHome();
+
+		const { code, stderr } = await runDaemonized(home, ["resolve", "noColon", "--json"], SAMPLE_DIR);
+
+		expect(code).toBe(2);
+		expect(JSON.parse(stderr)).toMatchObject({ code: "VALIDATION_ERROR" });
+		expect(daemonPids(home)).toHaveLength(1);
+	}, 60_000);
+
 	it("SYMANTIC_NO_DAEMON=1 bypasses the daemon entirely", async () => {
 		const home = freshHome();
 

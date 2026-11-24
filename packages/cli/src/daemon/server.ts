@@ -98,7 +98,7 @@ export async function runDaemonServer(options: DaemonServerOptions): Promise<voi
 			() =>
 				callEngine(request.method, request.params).then(
 					(result) => reply({ result: result ?? null }),
-					(error: unknown) => reply({ error: error instanceof Error ? error.message : String(error) })
+					(error: unknown) => reply(error instanceof Error ? { error: error.message, errorName: error.name } : { error: String(error) })
 				),
 			() => undefined
 		);

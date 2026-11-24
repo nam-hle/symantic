@@ -93,6 +93,13 @@ async function withEngine(args: { tsconfig?: string }, fn: (engine: AsyncSymbolE
 			throw new SymanticError("NO_PROJECT", error.message, { context: { tsconfig: tsConfigPath } });
 		}
 
+		if (error instanceof Error && error.name === "InvalidQualifiedNameError") {
+			// The engine appends the grammar after the first line; it is the hint, not the message.
+			const [message = "", ...grammar] = error.message.split("\n");
+
+			throw new SymanticError("VALIDATION_ERROR", message, { hint: grammar.join("\n") || undefined, context: { argument: "symbol" } });
+		}
+
 		throw error;
 	} finally {
 		await engineInstance.dispose();
@@ -279,15 +286,19 @@ const viewBody = defineCommand({
 });
 
 const viewRegion = defineCommand({
-	meta: { name: "region", description: "Print an addressed line range: file:Lstart-Lend" },
-	args: { json, tsconfig, target: { required: true, type: "positional", description: "file:Lstart-Lend" } },
+	meta: { name: "region", description: "Print an addressed line range: file:start-end" },
+	args: {
+		json,
+		tsconfig,
+		target: { required: true, type: "positional", description: "file:start-end, 1-based inclusive lines (e.g. src/a.ts:10-30)" }
+	},
 	async run({ args }) {
 		await withEngine(args, async (e, tc) => {
 			const m = /^(.*):(\d+)-(\d+)$/.exec(args.target);
 
-			if (m === null) {
-				throw new SymanticError("VALIDATION_ERROR", `expected file:Lstart-Lend, got "${args.target}"`, {
-					context: { argument: "target", value: args.target, expected: "file:Lstart-Lend" }
+			if (m === null || Number(m[2]) < 1 || Number(m[2]) > Number(m[3])) {
+				throw new SymanticError("VALIDATION_ERROR", `expected file:start-end with 1 <= start <= end (e.g. src/a.ts:10-30), got "${args.target}"`, {
+					context: { argument: "target", value: args.target, expected: "file:start-end, 1 <= start <= end" }
 				});
 			}
 
