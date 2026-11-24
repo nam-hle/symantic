@@ -6,7 +6,7 @@ import { dirname, resolve } from "node:path";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 
 import { EditConflictError, EditOverlapError } from "./errors.js";
-import { contentHash, applyTextEdits } from "./plan.js";
+import { stripBom, withBomOf, contentHash, applyTextEdits } from "./plan.js";
 import type { EditPlan, TextEdit } from "./plan.js";
 
 export interface ApplyOptions {
@@ -46,9 +46,10 @@ export function applyEditPlan(plan: EditPlan, options: ApplyOptions): EditResult
 	const writes: Array<{ path: string; text: string; edits: number }> = [];
 
 	for (const file of plan.files) {
-		const before = readFileSync(absolute(file.path), "utf8");
+		const raw = readFileSync(absolute(file.path), "utf8");
+		const before = stripBom(raw);
 
-		if (file.baseHash !== undefined && file.baseHash !== contentHash(before)) {
+		if (file.baseHash !== undefined && file.baseHash !== contentHash(raw)) {
 			drifted.push(file.path);
 
 			continue;
@@ -57,7 +58,7 @@ export function applyEditPlan(plan: EditPlan, options: ApplyOptions): EditResult
 		const after = editedText(before, file.path, file.edits);
 
 		if (after !== before) {
-			writes.push({ path: file.path, text: after, edits: file.edits.length });
+			writes.push({ path: file.path, text: withBomOf(raw, after), edits: file.edits.length });
 		}
 	}
 

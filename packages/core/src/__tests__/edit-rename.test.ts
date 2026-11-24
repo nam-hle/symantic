@@ -102,6 +102,22 @@ describe("planRename + applyEditPlan against the language server", () => {
 		expect(read(dir, "src/foo.ts")).toContain("export function foo()");
 	}, 30_000);
 
+	it("keeps columns right across files that start with a UTF-8 BOM", async () => {
+		const dir = copyFixture();
+
+		for (const file of ["src/foo.ts", "src/use.ts"]) {
+			writeFileSync(join(dir, file), `\ufeff${read(dir, file)}`);
+		}
+
+		const position = namePosition(dir, "src/foo.ts:foo");
+		const plan = await planRename({ baseDir: dir, newName: "run", file: "src/foo.ts", position });
+		applyEditPlan(plan, { baseDir: dir });
+
+		expect(read(dir, "src/use.ts")).toBe('\ufeffimport { run as alias } from "./foo.js";\n\nexport const total = alias() + 1;\n');
+		expect(read(dir, "src/foo.ts").startsWith("\ufeffexport function run(): number {")).toBe(true);
+		expect(read(dir, "src/direct.ts")).toContain("export const again = run();");
+	}, 30_000);
+
 	it("refuses to rename a library symbol", async () => {
 		const dir = copyFixture();
 		writeFileSync(join(dir, "src/lib.ts"), "export const biggest = Math.max(1, 2);\n");

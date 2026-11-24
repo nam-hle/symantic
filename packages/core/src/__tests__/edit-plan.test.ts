@@ -178,6 +178,17 @@ describe("applyEditPlan", () => {
 		expect(readFileSync(join(dir, "a.ts"), "utf8")).toBe("foo // edited meanwhile\n");
 	});
 
+	it("keeps a UTF-8 BOM out of the columns and on the file", () => {
+		const dir = project({ "a.ts": "\ufefffoo\n" });
+		const result = applyEditPlan(
+			{ moves: [], files: [{ path: "a.ts", baseHash: contentHash("\ufefffoo\n"), edits: [edit(0, 0, 3, "run")] }] },
+			{ baseDir: dir }
+		);
+
+		expect(result.changed).toEqual([{ path: "a.ts", edits: 1 }]);
+		expect(readFileSync(join(dir, "a.ts"), "utf8")).toBe("\ufeffrun\n");
+	});
+
 	it("names the file of overlapping edits and writes nothing", () => {
 		const dir = project({ "a.ts": "foo\n", "b.ts": "abcdef\n" });
 		const overlapping: EditPlan = {

@@ -51,6 +51,14 @@ export interface WorkspaceEdit {
 	>;
 }
 
+const BOM = "\ufeff";
+
+/** LSP columns count from after a UTF-8 BOM, so the BOM stays out of every text the edits touch. */
+export const stripBom = (text: string): string => (text.startsWith(BOM) ? text.slice(1) : text);
+
+/** `text` as it must be written back, with the BOM the file had. */
+export const withBomOf = (original: string, text: string): string => (original.startsWith(BOM) ? `${BOM}${text}` : text);
+
 /** Content hash used to detect a file that changed between planning and writing. */
 export function contentHash(text: string): string {
 	return createHash("sha256").update(text).digest("hex");

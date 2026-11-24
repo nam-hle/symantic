@@ -8,7 +8,7 @@ import { readFileSync } from "node:fs";
 import { LspError, LspSession } from "./lsp-session.js";
 import { EditRefusedError } from "./errors.js";
 import { pathToFileUri } from "./uri.js";
-import { contentHash, normalizeWorkspaceEdit } from "./plan.js";
+import { stripBom, contentHash, normalizeWorkspaceEdit } from "./plan.js";
 import type { EditPlan, WorkspaceEdit } from "./plan.js";
 
 const RESERVED_WORDS = new Set(
@@ -47,7 +47,7 @@ export async function planRename(request: RenameRequest): Promise<EditPlan> {
 	const session = await LspSession.start(request.baseDir);
 
 	try {
-		session.openDocument(absolute, text);
+		session.openDocument(absolute, stripBom(text));
 		await prepare(session, location);
 		const edit = (await session.request("textDocument/rename", { ...location, newName: request.newName })) as WorkspaceEdit | null;
 		const hashes = new Map(request.baseHashes);
