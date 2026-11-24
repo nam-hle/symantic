@@ -113,7 +113,10 @@ describe("planRename + applyEditPlan against the language server", () => {
 		const plan = await planRename({ baseDir: dir, newName: "run", file: "src/foo.ts", position });
 		applyEditPlan(plan, { baseDir: dir });
 
-		expect(read(dir, "src/use.ts")).toBe('\ufeffimport { run as alias } from "./foo.js";\n\nexport const total = alias() + 1;\n');
+		// The fixture may be checked out with CRLF (Windows CI); the rename keeps line endings, so compare without them.
+		expect(read(dir, "src/use.ts").replaceAll("\r\n", "\n")).toBe(
+			'\ufeffimport { run as alias } from "./foo.js";\n\nexport const total = alias() + 1;\n'
+		);
 		expect(read(dir, "src/foo.ts").startsWith("\ufeffexport function run(): number {")).toBe(true);
 		expect(read(dir, "src/direct.ts")).toContain("export const again = run();");
 	}, 30_000);
