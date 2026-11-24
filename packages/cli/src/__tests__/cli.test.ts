@@ -91,6 +91,11 @@ async function runPiped(args: string[]): Promise<{ code: number; stdout: string;
 
 const ESC = String.fromCharCode(27);
 
+/** Splits a printed command line into words, undoing the single quotes `next` puts around unsafe values (Windows paths). */
+function shellWords(line: string): string[] {
+	return [...line.matchAll(/'((?:[^']|'\\'')*)'|(\S+)/g)].map(([, quoted, bare]) => quoted?.replaceAll("'\\''", "'") ?? bare ?? "");
+}
+
 describe("CLI integration", () => {
 	describe("output off a terminal", () => {
 		it("prints no ANSI escape on stdout or stderr when piped", async () => {
@@ -688,7 +693,7 @@ describe("CLI integration", () => {
 				collected.push(...page.items);
 
 				while (page.next !== undefined && collected.length < all.total) {
-					const args = page.next.split(" ").slice(1);
+					const args = shellWords(page.next).slice(1);
 					page = JSON.parse((await run(args)).stdout) as ListJson;
 					collected.push(...page.items);
 				}
