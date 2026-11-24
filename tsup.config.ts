@@ -14,5 +14,5 @@ const bin = (pkg: string, external: string[]) => ({
 });
 
 // Bins ship with their dependencies declared in package.json — externalize them
-// (and the workspace @symantic/core) so tsup does not inline ts-morph et al.
+// (and the workspace @symantic/core) so tsup does not inline their dependencies.
 export default defineConfig([bin("cli", ["@symantic/core", "citty"]), bin("mcp", ["@symantic/core", "@modelcontextprotocol/sdk", "zod"])]);

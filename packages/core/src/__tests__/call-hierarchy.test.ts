@@ -95,7 +95,7 @@ describe("callHierarchy", () => {
 
 		// Deep walk over ping <-> pong: the cycle guard must visit each declaration
 		// once. A guard keyed on node identity can re-add the same source position
-		// reached via a distinct ts-morph wrapper, growing the tree past the cycle.
+		// reached via a distinct node object, growing the tree past the cycle.
 		const tree = engine.callHierarchy(symbol, { depth: 10, direction: "outgoing" });
 
 		const seen = new Set<string>();

@@ -115,7 +115,7 @@ engine sits behind the `SymbolEngine` interface (`resolveSymbol` / `findUsages` 
   checker) is **archived/abandoned** (2025); Ezno / tsz are research-grade, not at tsc parity.
   Rust TS tooling (SWC, oxc, ast-grep) is **syntactic only** — fast AST, no type-aware refs —
   usable as a fallback sweep tier, never the semantic core. Going Rust = rebuilding the
-  typechecker = the exact thing this project refuses to do. Go (tsgo) gets native speed
+  typechecker = the exact thing this project refuses to do. Go (the TypeScript 7 compiler) gets native speed
   _without_ reinventing semantics.
 
 ## Key risks

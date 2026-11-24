@@ -38,7 +38,7 @@ describe("outlineFile", () => {
 		expect(qualifiedNames).toContain("src/nested.ts:Model::Inner::Node");
 	});
 
-	test("surfaces JSDoc release tags on declarations (ts-morph)", () => {
+	test("surfaces JSDoc release tags on declarations", () => {
 		const outline = engine.outlineFile("src/tags.ts");
 		const tagsOf = (name: string): string[] | undefined =>
 			[...outline.functions, ...outline.interfaces, ...outline.variables].find((m) => m.name === name)?.tags;
