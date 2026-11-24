@@ -91,6 +91,8 @@ interface Session {
 	snapshot: Snapshot;
 	/** Project source files on disk (library and node_modules files excluded), with change stamps. */
 	stamps: Map<string, string>;
+	/** The tsconfig and the configs it extends, with change stamps. */
+	configs: Map<string, string>;
 }
 
 /** Declaration kinds whose name token is the declaration itself rather than a use of it. */
@@ -288,7 +290,17 @@ export class Engine implements SymbolEngine {
 			}
 		}
 
-		return { api, stamps, project, snapshot };
+		const configs = new Map<string, string>();
+
+		for (const fileName of project.program.getConfigFileNames()) {
+			const stamp = stampOf(fileName);
+
+			if (stamp !== undefined) {
+				configs.set(fileName, stamp);
+			}
+		}
+
+		return { api, stamps, configs, project, snapshot };
 	}
 
 	get #project(): Project {
@@ -317,7 +329,7 @@ export class Engine implements SymbolEngine {
 		const changed: string[] = [];
 		const deleted: string[] = [];
 
-		for (const [fileName, stamp] of session.stamps) {
+		for (const [fileName, stamp] of [...session.stamps.entries(), ...session.configs.entries()]) {
 			const current = stampOf(fileName);
 
 			if (current === undefined) {
@@ -327,14 +339,38 @@ export class Engine implements SymbolEngine {
 			}
 		}
 
-		if (changed.length === 0 && deleted.length === 0) {
+		const created = this.#createdFiles(session);
+
+		if (changed.length === 0 && deleted.length === 0 && created.length === 0) {
 			return;
 		}
 
-		// openProjects must be repeated: without it the update keeps the old program untouched.
-		const next = session.snapshot.update({ openProjects: [this.#tsConfigPath], fileNotifications: { changed, deleted } });
-		session.snapshot.dispose();
-		this.#session = this.#openSession(session.api, next);
+		let next: Snapshot | undefined;
+
+		try {
+			// openProjects must be repeated: without it the update keeps the old program untouched.
+			next = session.snapshot.update({ openProjects: [this.#tsConfigPath], fileNotifications: { changed, created, deleted } });
+			const fresh = this.#openSession(session.api, next);
+			session.snapshot.dispose();
+			this.#session = fresh;
+		} catch (error) {
+			// Never keep a half-replaced session (e.g. a broken tsconfig): drop it so the next call re-warms.
+			next?.dispose();
+			this.dispose();
+			throw error;
+		}
+	}
+
+	/** Files the tsconfig's include set matches on disk now but the loaded project does not have. */
+	#createdFiles(session: Session): string[] {
+		try {
+			const loaded = new Set(session.project.program.getRootFileNames().map(normalizeSlashes));
+			const included = session.api.parseConfigFile(this.#tsConfigPath).fileNames;
+
+			return included.filter((fileName) => !loaded.has(normalizeSlashes(fileName)));
+		} catch {
+			return [];
+		}
 	}
 
 	/** Number of project source files — 0 signals a non-loadable (base) tsconfig. */
