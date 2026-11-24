@@ -59,6 +59,7 @@ import type {
 	Member,
 	CallNode,
 	Candidate,
+	Position,
 	Reference,
 	ImportInfo,
 	FileOutline,
@@ -680,7 +681,9 @@ export class Engine implements SymbolEngine {
 				seen.add(key);
 
 				return options?.excludeTests === true ? ref.test !== true : true;
-			});
+			})
+			// A cursor is an offset into this list, so its order must not depend on the program's file order.
+			.sort(byReferencePosition);
 
 		const offset = parsePageCursor(options?.cursor);
 		const limit = options?.limit;
@@ -963,6 +966,15 @@ export class Engine implements SymbolEngine {
 
 		return this.#declarationsFor(symbol).flatMap((decl) => buildFunctionOutline(decl, depth, base));
 	}
+}
+
+/** Order references by file path (code-unit order, locale-independent), then line, then column. */
+function byReferencePosition(a: { position: Position }, b: { position: Position }): number {
+	if (a.position.file !== b.position.file) {
+		return a.position.file < b.position.file ? -1 : 1;
+	}
+
+	return a.position.line - b.position.line || a.position.col - b.position.col;
 }
 
 /** Order candidates by file, then line, then column. */
