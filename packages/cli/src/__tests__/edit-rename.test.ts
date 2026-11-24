@@ -34,7 +34,8 @@ const dirs: string[] = [];
 
 afterEach(() => {
 	for (const dir of dirs.splice(0)) {
-		rmSync(dir, { force: true, recursive: true });
+		// A killed daemon releases its files a moment later on Windows; retry instead of failing on EPERM/EBUSY.
+		rmSync(dir, { force: true, recursive: true, maxRetries: 10, retryDelay: 200 });
 	}
 });
 
