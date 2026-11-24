@@ -6,6 +6,8 @@
  * Commands group by agent intent: `view` (read code) and `find` (locate/trace),
  * plus top-level addressing / whole-file facts.
  */
+import { existsSync } from "node:fs";
+
 import { defineCommand } from "citty";
 import { NS_SEP, createEngine } from "@symantic/core";
 import type { SymbolHandle, AsyncSymbolEngine } from "@symantic/core";
@@ -29,6 +31,7 @@ import { gain } from "./gain/command.js";
 import { readVersion } from "./version.js";
 import { recordGain } from "./gain/track.js";
 import { runCli } from "./run-main.js";
+import { SymanticError } from "./errors.js";
 import { SHORT_KINDS, kindList, positiveInt, nonNegativeInt } from "./flags.js";
 import { resolveTsconfig } from "./tsconfig.js";
 import { daemonEngine } from "./daemon/client.js";
@@ -56,7 +59,8 @@ const json = { type: "boolean", description: "Emit structured JSON instead of te
 /**
  * Run a command body with a fresh engine over the resolved tsconfig (explicit `--tsconfig`,
  * else the nearest one upward from cwd), disposing it after. The resolved path is passed to
- * the body so the gain ledger records the real project. Clean error + non-zero exit on failure.
+ * the body so the gain ledger records the real project. Failures propagate to `runCli`, which
+ * reports them as one envelope; the engine is disposed first.
  */
 async function withEngine(args: { tsconfig?: string }, fn: (engine: AsyncSymbolEngine, tsConfigPath: string) => Promise<void>): Promise<void> {
 	let tsConfigPath: string;
@@ -64,10 +68,11 @@ async function withEngine(args: { tsconfig?: string }, fn: (engine: AsyncSymbolE
 	try {
 		tsConfigPath = resolveTsconfig(args.tsconfig);
 	} catch (error) {
-		process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-		process.exitCode = 1;
+		throw new SymanticError("NO_PROJECT", error instanceof Error ? error.message : String(error));
+	}
 
-		return;
+	if (!existsSync(tsConfigPath)) {
+		throw new SymanticError("NO_PROJECT", `tsconfig not found: ${tsConfigPath}`, { context: { tsconfig: tsConfigPath } });
 	}
 
 	// Warm daemon first (#113) — repeat invocations skip the full project load. Falls back
@@ -83,14 +88,25 @@ async function withEngine(args: { tsconfig?: string }, fn: (engine: AsyncSymbolE
 
 		await fn(engineInstance, tsConfigPath);
 	} catch (error) {
-		process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-		process.exitCode = 1;
+		// The engine words its load failure as plain text; give it the project code.
+		if (error instanceof Error && error.message.startsWith("could not load project")) {
+			throw new SymanticError("NO_PROJECT", error.message, { context: { tsconfig: tsConfigPath } });
+		}
+
+		if (error instanceof Error && error.name === "InvalidQualifiedNameError") {
+			// The engine appends the grammar after the first line; it is the hint, not the message.
+			const [message = "", ...grammar] = error.message.split("\n");
+
+			throw new SymanticError("VALIDATION_ERROR", message, { hint: grammar.join("\n") || undefined, context: { argument: "symbol" } });
+		}
+
+		throw error;
 	} finally {
 		await engineInstance.dispose();
 	}
 }
 
-/** Resolve a name to a single symbol, or throw with the candidates / not-found result. */
+/** Resolve a name to a single symbol, or throw NOT_FOUND / AMBIGUOUS carrying the engine's hint or candidates. */
 async function resolveSymbolOrThrow(engineInstance: AsyncSymbolEngine, qualifiedName: string): Promise<SymbolHandle> {
 	const result = await engineInstance.resolveSymbol(qualifiedName);
 
@@ -98,13 +114,22 @@ async function resolveSymbolOrThrow(engineInstance: AsyncSymbolEngine, qualified
 		return result.symbol;
 	}
 
-	// A not-found with a hint (#100/#101) reads better as the rendered miss than raw JSON;
-	// ambiguous still throws the structured candidates the caller needs to disambiguate.
 	if (result.kind === "not-found") {
-		throw new Error(renderResolve(result));
+		const suggestions = result.suggestions ?? [];
+		const suggestionHint = suggestions.length > 0 ? `did you mean: ${suggestions.join(", ")}` : undefined;
+
+		throw new SymanticError("NOT_FOUND", `not found: ${qualifiedName}`, {
+			hint: result.hint ?? suggestionHint,
+			context: { symbol: qualifiedName, suggestions }
+		});
 	}
 
-	throw new Error(JSON.stringify(result, null, 2));
+	const addresses = result.candidates.map((candidate) => candidate.qualifiedName);
+
+	throw new SymanticError("AMBIGUOUS", `"${qualifiedName}" is ambiguous: ${addresses.length} declarations match`, {
+		hint: `retry with one of: ${addresses.join(", ")}`,
+		context: { symbol: qualifiedName, candidates: result.candidates }
+	});
 }
 
 const symbolArg = { required: true, type: "positional", description: "file:name[#index]" } as const;
@@ -261,14 +286,20 @@ const viewBody = defineCommand({
 });
 
 const viewRegion = defineCommand({
-	meta: { name: "region", description: "Print an addressed line range: file:Lstart-Lend" },
-	args: { json, tsconfig, target: { required: true, type: "positional", description: "file:Lstart-Lend" } },
+	meta: { name: "region", description: "Print an addressed line range: file:start-end" },
+	args: {
+		json,
+		tsconfig,
+		target: { required: true, type: "positional", description: "file:start-end, 1-based inclusive lines (e.g. src/a.ts:10-30)" }
+	},
 	async run({ args }) {
 		await withEngine(args, async (e, tc) => {
 			const m = /^(.*):(\d+)-(\d+)$/.exec(args.target);
 
-			if (m === null) {
-				throw new Error(`expected file:Lstart-Lend, got ${args.target}`);
+			if (m === null || Number(m[2]) < 1 || Number(m[2]) > Number(m[3])) {
+				throw new SymanticError("VALIDATION_ERROR", `expected file:start-end with 1 <= start <= end (e.g. src/a.ts:10-30), got "${args.target}"`, {
+					context: { argument: "target", value: args.target, expected: "file:start-end, 1 <= start <= end" }
+				});
 			}
 
 			const region = await e.readRegion(m[1]!, Number(m[2]), Number(m[3]));
@@ -430,7 +461,7 @@ const find = defineCommand({
 
 /** Hidden daemon entry point — spawned detached by daemonEngine, never typed by hand. */
 const daemon = defineCommand({
-	meta: { name: "_daemon", description: "(internal) run the warm-engine daemon for a tsconfig" },
+	meta: { hidden: true, name: "_daemon", description: "(internal) run the warm-engine daemon for a tsconfig" },
 	args: {
 		tsconfig: { type: "string", required: true, description: "Project tsconfig the daemon serves" }
 	},
@@ -450,16 +481,4 @@ const main = defineCommand({
 	meta: { name: "symantic", version: readVersion(), description: "Semantic symbol queries for TypeScript" }
 });
 
-/** `--engine` selected a backend before the single-engine rewrite; citty would silently ignore it. */
-function rejectRemovedEngineFlag(argv: string[]): void {
-	if (argv.some((arg) => arg === "--engine" || arg.startsWith("--engine="))) {
-		process.stderr.write("--engine was removed: symantic has a single engine now (drop the flag)\n");
-		process.exitCode = 1;
-	}
-}
-
-rejectRemovedEngineFlag(process.argv.slice(2));
-
-if (process.exitCode !== 1) {
-	void runCli(main, process.argv.slice(2));
-}
+void runCli(main, process.argv.slice(2));

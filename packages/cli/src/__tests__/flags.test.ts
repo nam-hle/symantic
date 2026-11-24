@@ -1,6 +1,7 @@
 import { it, expect, describe } from "vitest";
 
-import { UsageError, SHORT_KINDS, kindList, positiveInt, nonNegativeInt, rejectUnknownFlags } from "../flags.js";
+import { SymanticError } from "../errors.js";
+import { SHORT_KINDS, kindList, positiveInt, nonNegativeInt, rejectRemovedFlags, rejectUnknownFlags } from "../flags.js";
 
 describe("positiveInt", () => {
 	it("passes undefined through and accepts integers from 1", () => {
@@ -10,7 +11,7 @@ describe("positiveInt", () => {
 	});
 
 	it.each(["0", "-3", "1.5", "abc", "", "1e3", " 2"])("rejects %j naming the flag and the value", (raw) => {
-		expect(() => positiveInt("limit", raw)).toThrow(UsageError);
+		expect(() => positiveInt("limit", raw)).toThrow(SymanticError);
 		expect(() => positiveInt("limit", raw)).toThrow(`--limit expects a positive integer, got "${raw}"`);
 	});
 
@@ -43,7 +44,7 @@ describe("kindList", () => {
 	});
 
 	it("rejects an unknown kind and lists the allowed values", () => {
-		expect(() => kindList("fn,bogus")).toThrow(UsageError);
+		expect(() => kindList("fn,bogus")).toThrow(SymanticError);
 		expect(() => kindList("fn,bogus")).toThrow(/"bogus".*enum, cls, meth, ns, fn, prop, const, type, iface/);
 	});
 });
@@ -96,5 +97,40 @@ describe("rejectUnknownFlags", () => {
 	it("tolerates a command without declared args", () => {
 		expect(() => rejectUnknownFlags(["--help"], undefined)).not.toThrow();
 		expect(() => rejectUnknownFlags(["--json"], undefined)).toThrow("Unknown option --json");
+	});
+});
+
+describe("error codes", () => {
+	const codeOf = (run: () => unknown): string | undefined => {
+		try {
+			run();
+		} catch (error) {
+			return error instanceof SymanticError ? error.code : undefined;
+		}
+
+		return undefined;
+	};
+
+	it("tags bad values VALIDATION_ERROR and unknown flags UNKNOWN_OPTION", () => {
+		expect(codeOf(() => positiveInt("limit", "abc"))).toBe("VALIDATION_ERROR");
+		expect(codeOf(() => kindList("bogus"))).toBe("VALIDATION_ERROR");
+		expect(codeOf(() => rejectUnknownFlags(["--bogus"], {}))).toBe("UNKNOWN_OPTION");
+	});
+
+	it("names the observed flag and value in the context", () => {
+		expect(() => positiveInt("limit", "abc")).toThrow(
+			expect.objectContaining({ context: { flag: "limit", value: "abc", expected: "a positive integer" } })
+		);
+	});
+});
+
+describe("rejectRemovedFlags", () => {
+	it("explains a removed flag instead of calling it unknown", () => {
+		expect(() => rejectRemovedFlags(["resolve", "--engine", "lsp"])).toThrow("--engine was removed");
+		expect(() => rejectRemovedFlags(["--engine=lsp"])).toThrow("--engine was removed");
+	});
+
+	it("ignores everything else", () => {
+		expect(() => rejectRemovedFlags(["find", "refs", "--json", "--limit=2"])).not.toThrow();
 	});
 });

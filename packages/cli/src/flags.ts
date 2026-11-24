@@ -1,12 +1,6 @@
 import type { ArgsDef } from "citty";
 
-/** A bad flag or flag value; reported with the usage text, never as a silent empty result. */
-export class UsageError extends Error {
-	public constructor(message: string) {
-		super(message);
-		this.name = "UsageError";
-	}
-}
+import { SymanticError } from "./errors.js";
 
 /** Short kind labels `--kind` accepts: the values `find symbol` can report. */
 export const SHORT_KINDS = ["enum", "cls", "meth", "ns", "fn", "prop", "const", "type", "iface"] as const;
@@ -21,7 +15,9 @@ function parseInteger(flag: string, raw: string | undefined, minimum: number, ex
 	const value = INTEGER.test(raw) ? Number(raw) : Number.NaN;
 
 	if (!Number.isSafeInteger(value) || value < minimum) {
-		throw new UsageError(`--${flag} expects ${expectation}, got "${raw}"`);
+		throw new SymanticError("VALIDATION_ERROR", `--${flag} expects ${expectation}, got "${raw}"`, {
+			context: { flag, value: raw, expected: expectation }
+		});
 	}
 
 	return value;
@@ -43,7 +39,9 @@ export function kindList(raw: string | undefined): string[] | undefined {
 	const unknown = kinds.find((kind) => !(SHORT_KINDS as readonly string[]).includes(kind));
 
 	if (unknown !== undefined) {
-		throw new UsageError(`--kind got "${unknown}"; expected a comma-separated list of: ${SHORT_KINDS.join(", ")}`);
+		throw new SymanticError("VALIDATION_ERROR", `--kind got "${unknown}"; expected a comma-separated list of: ${SHORT_KINDS.join(", ")}`, {
+			context: { flag: "kind", value: unknown, allowed: SHORT_KINDS }
+		});
 	}
 
 	return kinds;
@@ -80,6 +78,23 @@ function knownFlags(argsDef: ArgsDef | undefined): Map<string, FlagArity> {
 	return known;
 }
 
+const allowedOptions = (known: Map<string, FlagArity>): string[] =>
+	[...known.keys()].filter((name) => name.length > 1 && !/[A-Z]/.test(name)).map((name) => `--${name}`);
+
+/** Flags dropped on purpose; a clear message beats the generic unknown-option one. */
+const REMOVED_FLAGS: Record<string, string> = { engine: "symantic has a single engine now (drop the flag)" };
+
+export function rejectRemovedFlags(rawArgs: string[]): void {
+	for (const token of rawArgs) {
+		const name = token.startsWith("--") ? token.slice(2).split("=")[0]! : undefined;
+		const reason = name === undefined ? undefined : REMOVED_FLAGS[name];
+
+		if (reason !== undefined) {
+			throw new SymanticError("UNKNOWN_OPTION", `--${name} was removed: ${reason}`, { context: { option: `--${name}`, removed: true } });
+		}
+	}
+}
+
 /** citty ignores flags a command does not declare; a typo must fail instead of reading as an answer. */
 export function rejectUnknownFlags(rawArgs: string[], argsDef: ArgsDef | undefined): void {
 	const known = knownFlags(argsDef);
@@ -96,7 +111,7 @@ export function rejectUnknownFlags(rawArgs: string[], argsDef: ArgsDef | undefin
 			const negated = name.startsWith("no-") && known.get(name.slice(3)) === "switch";
 
 			if (!negated && !known.has(name)) {
-				throw new UsageError(`Unknown option --${name}`);
+				throw new SymanticError("UNKNOWN_OPTION", `Unknown option --${name}`, { context: { option: `--${name}`, allowed: allowedOptions(known) } });
 			}
 
 			// A value flag consumes the next token, even one that looks like a flag (--limit -3).
@@ -112,7 +127,9 @@ export function rejectUnknownFlags(rawArgs: string[], argsDef: ArgsDef | undefin
 			const unknown = letters.find((letter) => !known.has(letter));
 
 			if (unknown !== undefined) {
-				throw new UsageError(`Unknown option -${unknown}`);
+				throw new SymanticError("UNKNOWN_OPTION", `Unknown option -${unknown}`, {
+					context: { option: `-${unknown}`, allowed: allowedOptions(known) }
+				});
 			}
 
 			if (known.get(letters[letters.length - 1]!) === "value") {

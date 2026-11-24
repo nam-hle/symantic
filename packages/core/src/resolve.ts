@@ -62,6 +62,14 @@ const SYNTAX_HINT =
 	'syntax: "relativePath:Name", nested with "::" (e.g. "src/a.ts:Outer::Inner", ' +
 	'"src/a.ts:MyClass::method"), optional "#n" to disambiguate same-named symbols';
 
+/** A malformed qualified name; the message ends with the grammar so the error teaches the syntax. */
+export class InvalidQualifiedNameError extends Error {
+	public constructor(detail: string) {
+		super(`${detail}\n${SYNTAX_HINT}`);
+		this.name = "InvalidQualifiedNameError";
+	}
+}
+
 /** Join name segments with the namespace separator. */
 export function joinSegments(segments: string[]): string {
 	return segments.join(NS_SEP);
@@ -81,7 +89,7 @@ function splitFileAndName(qualifiedName: string): { file: string; name: string }
 	const sep = qualifiedName.indexOf(":");
 
 	if (sep === -1) {
-		throw new Error(`invalid qualified name (expected file:name): ${qualifiedName}\n${SYNTAX_HINT}`);
+		throw new InvalidQualifiedNameError(`invalid qualified name (expected file:name): ${qualifiedName}`);
 	}
 
 	return { file: qualifiedName.slice(0, sep), name: qualifiedName.slice(sep + 1) };
@@ -92,7 +100,7 @@ export function parseQualifiedName(qualifiedName: string): ParsedName {
 	const { file, name } = splitFileAndName(qualifiedName);
 
 	if (file === "") {
-		throw new Error(`invalid qualified name (empty file part): ${qualifiedName}\n${SYNTAX_HINT}`);
+		throw new InvalidQualifiedNameError(`invalid qualified name (empty file part): ${qualifiedName}`);
 	}
 
 	let rest = name;
@@ -104,7 +112,7 @@ export function parseQualifiedName(qualifiedName: string): ParsedName {
 		const parsed = Number(rest.slice(hash + 1));
 
 		if (!Number.isInteger(parsed) || parsed < 0) {
-			throw new Error(`invalid index in qualified name: ${qualifiedName}\n${SYNTAX_HINT}`);
+			throw new InvalidQualifiedNameError(`invalid index in qualified name: ${qualifiedName}`);
 		}
 
 		index = parsed;
@@ -112,13 +120,13 @@ export function parseQualifiedName(qualifiedName: string): ParsedName {
 	}
 
 	if (rest === "") {
-		throw new Error(`invalid qualified name (empty name part): ${qualifiedName}\n${SYNTAX_HINT}`);
+		throw new InvalidQualifiedNameError(`invalid qualified name (empty name part): ${qualifiedName}`);
 	}
 
 	const segments = splitName(rest);
 
 	if (segments.some((s) => s === "")) {
-		throw new Error(`invalid qualified name (empty segment): ${qualifiedName}\n${SYNTAX_HINT}`);
+		throw new InvalidQualifiedNameError(`invalid qualified name (empty segment): ${qualifiedName}`);
 	}
 
 	return { file, index, segments };

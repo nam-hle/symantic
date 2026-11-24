@@ -45,7 +45,7 @@ function connectOnce(socketPath: string): Promise<DaemonConnection | undefined> 
 
 					const line = buffer.slice(0, newline);
 					buffer = buffer.slice(newline + 1);
-					const message = JSON.parse(line) as { id: number; error?: string; result?: unknown };
+					const message = JSON.parse(line) as { id: number; error?: string; errorName?: string; result?: unknown };
 					const waiter = pending.get(message.id);
 					pending.delete(message.id);
 
@@ -54,7 +54,9 @@ function connectOnce(socketPath: string): Promise<DaemonConnection | undefined> 
 					}
 
 					if (message.error !== undefined) {
-						waiter.fail(new Error(message.error));
+						const failure = new Error(message.error);
+						failure.name = message.errorName ?? failure.name;
+						waiter.fail(failure);
 					} else {
 						waiter.ok(message.result);
 					}

@@ -38,7 +38,7 @@ an **MCP server**, prefer its MCP tools over shelling out — same ops, same add
 | A file's imports / public surface?                        | `symantic imports <file>` · `symantic exports <file>`                           |
 
 Rest, briefly: `view file` (whole file, lean; `--body` for each export's source), `view body`
-(statement skeleton of a function), `view region <file>:Lstart-Lend`, `usage` (per-export
+(statement skeleton of a function), `view region <file>:start-end`, `usage` (per-export
 reference counts), `resolve` (qualified name → symbol or candidates). Flags: `symantic <cmd> --help`.
 
 ## Addressing
