@@ -52,35 +52,35 @@ tasks.register("testCoverage", ExecTask, { args: ["run", "--coverage"], command:
 
 // --- Checking ---
 
-tasks.register("eslint", ExecTask, { args: ["."], command: "eslint" }).config({
+tasks.register("oxlint", ExecTask, { args: ["."], command: "oxlint" }).config({
 	group: "Checking",
-	description: "Lint all files with ESLint"
+	description: "Lint all files with oxlint"
 });
 
 tasks
-	.register("prettier", ExecTask, { command: "prettier", args: ["--check", "."] })
-	.config({ group: "Checking", description: "Check formatting with Prettier" });
+	.register("oxfmt", ExecTask, { command: "oxfmt", args: ["--check", "."] })
+	.config({ group: "Checking", description: "Check formatting with oxfmt" });
 
 tasks.register("check").config({
 	group: "Checking",
-	dependsOn: ["eslint", "prettier"],
+	dependsOn: ["oxlint", "oxfmt"],
 	description: "Run all checks (lint, format)"
 });
 
 // --- Formatting ---
 
-tasks.register("fixEslint", ExecTask, { command: "eslint", args: [".", "--fix"] }).config({
+tasks.register("fixOxlint", ExecTask, { command: "oxlint", args: [".", "--fix"] }).config({
 	group: "Formatting",
-	description: "Fix lint issues with ESLint"
+	description: "Fix lint issues with oxlint"
 });
 
 tasks
-	.register("fixPrettier", ExecTask, { command: "prettier", args: ["--write", "."] })
-	.config({ group: "Formatting", description: "Format all files with Prettier" });
+	.register("fixOxfmt", ExecTask, { command: "oxfmt", args: ["--write", "."] })
+	.config({ group: "Formatting", description: "Format all files with oxfmt" });
 
 tasks.register("format").config({
 	group: "Formatting",
-	dependsOn: ["fixEslint", "fixPrettier"],
+	dependsOn: ["fixOxlint", "fixOxfmt"],
 	description: "Fix lint and format all files"
 });
 

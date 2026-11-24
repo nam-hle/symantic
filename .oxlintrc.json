@@ -1,0 +1,59 @@
+{
+	"$schema": "./node_modules/oxlint/configuration_schema.json",
+	"plugins": ["eslint", "typescript", "unicorn", "oxc", "node"],
+	"categories": { "correctness": "error" },
+	"options": { "reportUnusedDisableDirectives": "error" },
+	"ignorePatterns": ["**/dist", "**/.nadle", "**/coverage", "**/node_modules", "**/*.config.ts", "packages/core/src/__tests__/fixtures/**"],
+	"rules": {
+		"curly": "error",
+		"no-console": "warn",
+		"max-params": ["error", { "max": 4 }],
+		"no-restricted-imports": ["error", { "patterns": ["consola"] }],
+		"no-empty": "error",
+		"no-case-declarations": "error",
+		"no-fallthrough": "error",
+		"no-prototype-builtins": "error",
+		"no-redeclare": "error",
+		"no-regex-spaces": "error",
+		"no-var": "error",
+		"prefer-const": "error",
+		"prefer-rest-params": "error",
+		"prefer-spread": "error",
+		"no-array-constructor": "error",
+		"no-unused-vars": [
+			"error",
+			{ "argsIgnorePattern": "^_", "ignoreRestSiblings": true, "destructuredArrayIgnorePattern": "^_", "caughtErrorsIgnorePattern": "^error$" }
+		],
+		"typescript/no-namespace": "off",
+		"typescript/no-explicit-any": "warn",
+		"typescript/no-empty-object-type": "off",
+		"typescript/explicit-member-accessibility": "error",
+		"typescript/consistent-type-imports": ["error", { "prefer": "type-imports", "fixStyle": "inline-type-imports" }],
+		"typescript/ban-ts-comment": "error",
+		"typescript/no-require-imports": "error",
+		"typescript/no-unsafe-function-type": "error",
+		"typescript/no-wrapper-object-types": "error",
+		"typescript/no-this-alias": "error",
+		"typescript/no-unnecessary-type-constraint": "error",
+		"typescript/no-unsafe-declaration-merging": "error",
+		"unicorn/prefer-node-protocol": "error",
+		"unicorn/no-process-exit": "error",
+		"node/no-exports-assign": "error"
+	},
+	"overrides": [
+		{
+			"files": ["**/*.test.ts"],
+			"plugins": ["vitest"],
+			"rules": {
+				"vitest/expect-expect": ["error", { "assertFunctionNames": ["expect", "expectTypeOf"] }],
+				"vitest/no-conditional-expect": "error",
+				"vitest/no-disabled-tests": "warn",
+				"vitest/no-focused-tests": "error",
+				"vitest/no-standalone-expect": "error",
+				"vitest/valid-describe-callback": "error",
+				"vitest/valid-expect": "error",
+				"vitest/valid-title": "error"
+			}
+		}
+	]
+}

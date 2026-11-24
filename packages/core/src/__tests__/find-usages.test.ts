@@ -31,7 +31,7 @@ describe("findUsages", () => {
 
 		expect(total).toBe(references.length);
 		const files = references.map((r) => r.position.file);
-		expect(files.some((f) => /consumer\.ts$/.test(f))).toBe(true);
+		expect(files.some((f) => f.endsWith("consumer.ts"))).toBe(true);
 		expect(references.some((r) => r.kind === "import")).toBe(true);
 		expect(references.some((r) => r.kind === "call")).toBe(true);
 	});

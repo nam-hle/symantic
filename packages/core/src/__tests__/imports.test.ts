@@ -16,7 +16,7 @@ describe("listImports", () => {
 	test("lists named imports of a file with their module", () => {
 		const imports = engine.listImports("src/consumer.ts");
 
-		const shapes = imports.find((i) => /shapes\.js$/.test(i.module));
+		const shapes = imports.find((i) => i.module.endsWith("shapes.js"));
 		expect(shapes).toBeDefined();
 		expect(shapes?.named).toContain("makeCircle");
 		expect(shapes?.named).toContain("Circle");
