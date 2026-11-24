@@ -6,7 +6,7 @@ import { resolve } from "node:path";
 import { readFileSync } from "node:fs";
 
 import { LspError, LspSession } from "./lsp-session.js";
-import { EditRefusedError } from "./errors.js";
+import { EditRefusedError, EditConflictError } from "./errors.js";
 import { pathToFileUri } from "./uri.js";
 import { stripBom, contentHash, normalizeWorkspaceEdit } from "./plan.js";
 import type { EditPlan, WorkspaceEdit } from "./plan.js";
@@ -36,27 +36,57 @@ export interface RenameRequest {
 	baseHashes?: ReadonlyMap<string, string>;
 }
 
-/** The edits that rename the symbol at `request.position`; refuses what the server will not rename. */
+/** Rounds of re-asking the server after opening files it edited but we had not hashed. */
+const MAX_ROUNDS = 5;
+
+/**
+ * The edits that rename the symbol at `request.position`; refuses what the server will not rename.
+ * Race-safe drift check: every file the final plan touches was opened in the session from text we
+ * hashed, so the server computed against exactly those hashes. A file the server edits that we had
+ * not opened is opened and the rename asked again; hashing after the answer would miss changes made
+ * while the server was computing.
+ */
 export async function planRename(request: RenameRequest): Promise<EditPlan> {
 	const absolute = resolve(request.baseDir, request.file);
-	const text = readFileSync(absolute, "utf8");
 	const location = {
 		textDocument: { uri: pathToFileUri(absolute) },
 		position: { line: request.position.line - 1, character: request.position.col - 1 }
 	};
 	const session = await LspSession.start(request.baseDir);
+	const opened = new Map<string, string>();
+	const open = (path: string): void => {
+		const raw = readFileSync(resolve(request.baseDir, path), "utf8");
+		const expected = request.baseHashes?.get(path);
 
-	try {
-		session.openDocument(absolute, stripBom(text));
-		await prepare(session, location);
-		const edit = (await session.request("textDocument/rename", { ...location, newName: request.newName })) as WorkspaceEdit | null;
-		const hashes = new Map(request.baseHashes);
-
-		if (!hashes.has(request.file)) {
-			hashes.set(request.file, contentHash(text));
+		if (expected !== undefined && expected !== contentHash(raw)) {
+			throw new EditConflictError(`changed since the edit was requested: ${path}; nothing was written`, [path]);
 		}
 
-		return normalizeWorkspaceEdit(edit ?? {}, request.baseDir, hashes);
+		session.openDocument(resolve(request.baseDir, path), stripBom(raw));
+		opened.set(path, raw);
+	};
+
+	try {
+		for (const path of new Set([request.file, ...(request.baseHashes?.keys() ?? [])])) {
+			open(path);
+		}
+
+		await prepare(session, location);
+
+		for (let round = 0; round < MAX_ROUNDS; round++) {
+			const edit = (await session.request("textDocument/rename", { ...location, newName: request.newName })) as WorkspaceEdit | null;
+			const hashes = new Map([...opened].map(([path, raw]) => [path, contentHash(raw)]));
+			const plan = normalizeWorkspaceEdit(edit ?? {}, request.baseDir, hashes);
+			const unopened = plan.files.filter((file) => !opened.has(file.path));
+
+			if (unopened.length === 0) {
+				return plan;
+			}
+
+			unopened.forEach((file) => open(file.path));
+		}
+
+		throw new Error("the language server kept editing files it had not been given");
 	} finally {
 		await session.close();
 	}

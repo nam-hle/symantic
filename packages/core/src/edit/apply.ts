@@ -120,11 +120,17 @@ export function applyEditPlan(plan: EditPlan, options: ApplyOptions): EditResult
 	const drifted: string[] = [];
 	const writes: Array<PendingWrite & { edits: number }> = [];
 
+	const unhashed = plan.files.filter((file) => file.baseHash === undefined).map((file) => file.path);
+
+	if (unhashed.length > 0) {
+		throw new EditConflictError(`no base hash for ${unhashed.join(", ")}, so drift cannot be ruled out; nothing was written`, unhashed);
+	}
+
 	for (const file of plan.files) {
 		const raw = readFileSync(absolute(file.path), "utf8");
 		const before = stripBom(raw);
 
-		if (file.baseHash !== undefined && file.baseHash !== contentHash(raw)) {
+		if (file.baseHash !== contentHash(raw)) {
 			drifted.push(file.path);
 
 			continue;

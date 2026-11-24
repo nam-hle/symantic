@@ -118,6 +118,18 @@ describe("planRename + applyEditPlan against the language server", () => {
 		expect(read(dir, "src/direct.ts")).toContain("export const again = run();");
 	}, 30_000);
 
+	it("hashes every file of the plan, including ones the caller did not name", async () => {
+		const dir = copyFixture();
+		const position = namePosition(dir, "src/foo.ts:foo");
+		const plan = await planRename({ baseDir: dir, newName: "run", file: "src/foo.ts", position });
+
+		expect(plan.files.map((file) => file.path).sort()).toEqual(["src/direct.ts", "src/foo.ts", "src/index.ts", "src/use.ts"]);
+
+		for (const file of plan.files) {
+			expect(file.baseHash).toBe(contentHash(read(dir, file.path)));
+		}
+	}, 30_000);
+
 	it("refuses to rename a library symbol", async () => {
 		const dir = copyFixture();
 		writeFileSync(join(dir, "src/lib.ts"), "export const biggest = Math.max(1, 2);\n");
