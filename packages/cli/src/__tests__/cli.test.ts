@@ -105,9 +105,9 @@ describe("CLI integration", () => {
 		it("sends the usage text of a failed parse to stderr, not stdout", async () => {
 			const { code, stdout, stderr } = await runPiped(["bogus"]);
 
-			expect(code).toBe(1);
+			expect(code).toBe(2);
 			expect(stdout).toBe("");
-			expect(stderr).toContain("USAGE");
+			expect(stderr).not.toContain("USAGE");
 			expect(stderr).toContain("Unknown command");
 		}, 20_000);
 
@@ -137,10 +137,10 @@ describe("CLI integration", () => {
 			const refs = await run([...REFS, "--bogus"]);
 			const gainRun = await run(["gain", "--bogus"]);
 
-			expect(refs.code).toBe(1);
+			expect(refs.code).toBe(2);
 			expect(refs.stderr).toContain("Unknown option --bogus");
 			expect(refs.stdout).toBe("");
-			expect(gainRun.code).toBe(1);
+			expect(gainRun.code).toBe(2);
 			expect(gainRun.stderr).toContain("Unknown option --bogus");
 		}, 20_000);
 
@@ -157,7 +157,7 @@ describe("CLI integration", () => {
 			async (value) => {
 				const { code, stdout, stderr } = await run([...REFS, "--limit", value]);
 
-				expect(code).toBe(1);
+				expect(code).toBe(2);
 				expect(stdout).toBe("");
 				expect(stderr).toContain("--limit");
 				expect(stderr).toContain(`"${value}"`);
@@ -170,7 +170,7 @@ describe("CLI integration", () => {
 			const bad = await run([...REFS, "--cursor", "abc"]);
 			const zero = await run([...REFS, "--cursor", "0"]);
 
-			expect(bad.code).toBe(1);
+			expect(bad.code).toBe(2);
 			expect(bad.stderr).toContain("--cursor");
 			expect(zero.code).toBe(0);
 		}, 20_000);
@@ -179,16 +179,16 @@ describe("CLI integration", () => {
 			const body = await run(["view", "body", "--tsconfig", TSCONFIG, "src/consumer.ts:totalArea", "--depth", "abc"]);
 			const callers = await run(["find", "callers", "--tsconfig", TSCONFIG, "src/shapes.ts:makeCircle", "--depth", "abc"]);
 
-			expect(body.code).toBe(1);
+			expect(body.code).toBe(2);
 			expect(body.stderr).toContain("--depth");
-			expect(callers.code).toBe(1);
+			expect(callers.code).toBe(2);
 			expect(callers.stderr).toContain("--depth");
 		}, 20_000);
 
 		it("rejects --context outside none|snippet|block and lists the allowed values", async () => {
 			const { code, stderr } = await run([...REFS, "--context", "weird"]);
 
-			expect(code).toBe(1);
+			expect(code).toBe(2);
 			expect(stderr).toContain("--context");
 			expect(stderr).toContain("weird");
 			expect(stderr).toContain("snippet");
@@ -197,7 +197,7 @@ describe("CLI integration", () => {
 		it("rejects an unknown --kind and lists the allowed values", async () => {
 			const { code, stderr } = await run(["find", "symbol", "--tsconfig", TSCONFIG, "makeCircle", "--kind", "fn,bogus"]);
 
-			expect(code).toBe(1);
+			expect(code).toBe(2);
 			expect(stderr).toContain("--kind");
 			expect(stderr).toContain("bogus");
 			expect(stderr).toContain("iface");
@@ -219,11 +219,115 @@ describe("CLI integration", () => {
 		}, 20_000);
 	});
 
+	describe("error envelope", () => {
+		interface Envelope {
+			hint: string;
+			code: string;
+			status: string;
+			message: string;
+			context: Record<string, unknown>;
+		}
+
+		const envelopeOf = (stderr: string): Envelope => JSON.parse(stderr) as Envelope;
+
+		it("reports a symbol that does not resolve as NOT_FOUND, exit 3", async () => {
+			const { code, stdout, stderr } = await run(["find", "refs", "--tsconfig", TSCONFIG, "src/shapes.ts:Nope", "--json"]);
+			const envelope = envelopeOf(stderr);
+
+			expect([code, stdout]).toEqual([3, ""]);
+			expect(envelope).toMatchObject({ status: "error", code: "NOT_FOUND", context: { symbol: "src/shapes.ts:Nope" } });
+			expect(envelope.hint).not.toBe("");
+		}, 20_000);
+
+		it("reports an ambiguous symbol as AMBIGUOUS with its candidates, exit 2", async () => {
+			const { code, stderr } = await run(["find", "refs", "--tsconfig", TSCONFIG, "src/dup.ts:thing", "--json"]);
+			const envelope = envelopeOf(stderr);
+
+			expect(code).toBe(2);
+			expect(envelope.code).toBe("AMBIGUOUS");
+			expect((envelope.context["candidates"] as { qualifiedName: string }[]).map((c) => c.qualifiedName)).toEqual([
+				"src/dup.ts:thing#0",
+				"src/dup.ts:thing#1"
+			]);
+			expect(envelope.hint).toContain("src/dup.ts:thing#0");
+		}, 20_000);
+
+		it("prints ambiguity as one line plus a hint in text mode", async () => {
+			const { stderr } = await run(["find", "refs", "--tsconfig", TSCONFIG, "src/dup.ts:thing"]);
+
+			expect(stderr.trim().split("\n")).toHaveLength(2);
+			expect(stderr).toMatch(/^error: .*ambiguous/);
+			expect(stderr).toContain("hint: retry with one of: src/dup.ts:thing#0");
+			expect(stderr).not.toContain('"kind"');
+		}, 20_000);
+
+		it("reports a missing tsconfig as NO_PROJECT, exit 3", async () => {
+			const { code, stderr } = await run(["find", "refs", "--tsconfig", "/nonexistent/tsconfig.json", "a.ts:A", "--json"]);
+
+			expect(code).toBe(3);
+			expect(envelopeOf(stderr)).toMatchObject({ code: "NO_PROJECT", context: { tsconfig: "/nonexistent/tsconfig.json" } });
+		}, 20_000);
+
+		it("reports a malformed region as VALIDATION_ERROR naming the value, exit 2", async () => {
+			const { code, stderr } = await run(["view", "region", "--tsconfig", TSCONFIG, "src/shapes.ts:bad", "--json"]);
+
+			expect(code).toBe(2);
+			expect(envelopeOf(stderr)).toMatchObject({ code: "VALIDATION_ERROR", context: { argument: "target", value: "src/shapes.ts:bad" } });
+		}, 20_000);
+
+		it("reports a bad flag value and an unknown flag with the offending input", async () => {
+			const limit = await run(["find", "refs", "src/a.ts:A", "--limit", "abc", "--json"]);
+			const unknown = await run(["find", "refs", "src/a.ts:A", "--bogus", "--json"]);
+
+			expect(envelopeOf(limit.stderr)).toMatchObject({ code: "VALIDATION_ERROR", context: { flag: "limit", value: "abc" } });
+			expect(envelopeOf(unknown.stderr)).toMatchObject({ code: "UNKNOWN_OPTION", context: { option: "--bogus" } });
+			expect([limit.code, unknown.code]).toEqual([2, 2]);
+		}, 20_000);
+
+		it("lists availableCommands for a group without a verb, with nothing on stdout", async () => {
+			const { code, stdout, stderr } = await run(["find", "--json"]);
+			const envelope = envelopeOf(stderr);
+
+			expect([code, stdout]).toEqual([2, ""]);
+			expect(envelope.code).toBe("MISSING_COMMAND");
+			expect(envelope.context["availableCommands"]).toEqual(expect.arrayContaining(["refs", "def", "symbol"]));
+		}, 20_000);
+
+		it("lists availableCommands for an unknown command, hiding internal ones", async () => {
+			const { code, stderr } = await run(["bogus", "--json"]);
+			const envelope = envelopeOf(stderr);
+
+			expect(code).toBe(2);
+			expect(envelope).toMatchObject({ code: "UNKNOWN_COMMAND", context: { command: "bogus" } });
+			expect(envelope.context["availableCommands"]).toContain("view");
+			expect(envelope.context["availableCommands"]).not.toContain("_daemon");
+		}, 20_000);
+
+		it("reports a missing positional as VALIDATION_ERROR, exit 2, in text mode too", async () => {
+			const json = await run(["find", "refs", "--json"]);
+			const text = await run(["find", "refs"]);
+
+			expect(json.code).toBe(2);
+			expect(envelopeOf(json.stderr)).toMatchObject({ code: "VALIDATION_ERROR", context: { argument: "SYMBOL" } });
+			expect(text.stdout).toBe("");
+			expect(text.stderr).toContain("hint:");
+		}, 20_000);
+
+		it("documents the exit codes in --help", async () => {
+			const { code, stdout } = await run(["--help"]);
+
+			expect(code).toBe(0);
+			expect(stdout).toContain("EXIT CODES");
+			expect(stdout).toMatch(/2 {2}usage error/);
+			expect(stdout).toMatch(/3 {2}not found/);
+		}, 20_000);
+	});
+
 	describe("--engine (removed)", () => {
 		it("fails clearly instead of silently ignoring the flag", async () => {
 			const { code, stderr } = await run(["resolve", "--tsconfig", TSCONFIG, "--engine", "lsp", "src/shapes.ts:makeCircle"]);
 
-			expect(code).toBe(1);
+			expect(code).toBe(2);
 			expect(stderr).toContain("--engine was removed");
 		}, 20_000);
 	});
@@ -256,9 +360,9 @@ describe("CLI integration", () => {
 
 	describe("def (definition)", () => {
 		it("returns non-zero exit and clean stderr (no stack trace) for a missing symbol", async () => {
-			const { code, stderr } = await run(["def", "--tsconfig", TSCONFIG, "src/shapes.ts:Nope"]);
+			const { code, stderr } = await run(["find", "def", "--tsconfig", TSCONFIG, "src/shapes.ts:Nope"]);
 
-			expect(code).not.toBe(0);
+			expect(code).toBe(3);
 			// Clean error: no "at " stack trace frames
 			expect(stderr).not.toMatch(/\bat\s+\S/);
 		}, 20_000);
@@ -363,7 +467,7 @@ describe("CLI integration", () => {
 		it("find def hints toward :: when a member is addressed with a dot (#101)", async () => {
 			const { code, stderr } = await run(["find", "def", "--tsconfig", TSCONFIG, "src/nested.ts:Model.Node"]);
 
-			expect(code).toBe(1);
+			expect(code).toBe(3);
 			expect(stderr).toContain("Model::Node");
 			expect(stderr).toContain("::");
 		}, 20_000);

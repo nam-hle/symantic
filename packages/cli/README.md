@@ -22,6 +22,21 @@ symantic find callers src/foo.ts:Bar          # incoming call hierarchy
 symantic gain                                  # estimated token savings to date
 ```
 
+## Errors and exit codes
+
+Results go to stdout; every failure goes to stderr as one line plus a `hint:` line, or with `--json`
+as one object `{ status, code, message, context, hint }`. Branch on `code` or the exit class:
+
+| Exit | Meaning                                         | Codes                                                                                   |
+| ---- | ----------------------------------------------- | --------------------------------------------------------------------------------------- |
+| 0    | success, including a query that matches nothing |                                                                                         |
+| 1    | unexpected error                                | `INTERNAL`                                                                              |
+| 2    | usage error                                     | `VALIDATION_ERROR`, `UNKNOWN_OPTION`, `UNKNOWN_COMMAND`, `MISSING_COMMAND`, `AMBIGUOUS` |
+| 3    | not found                                       | `NOT_FOUND`, `NO_PROJECT`                                                               |
+
+`context` names the offending input (`flag` and `value`, `symbol`, `tsconfig`); `MISSING_COMMAND` and
+`UNKNOWN_COMMAND` list `availableCommands`, `AMBIGUOUS` lists the `candidates` addresses.
+
 Run `symantic <command> --help` for flags. Full operation set and addressing scheme in the
 [root README](https://github.com/nam-hle/symantic#readme).
 
