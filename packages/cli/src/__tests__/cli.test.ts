@@ -716,6 +716,31 @@ describe("CLI integration", () => {
 			}
 		}, 30_000);
 
+		it.each([
+			["find symbol", ["find", "symbol", "e", "--contains"]],
+			["find refs", ["find", "refs", "src/shapes.ts:makeCircle"]],
+			["exports", ["exports", "src/barrel.ts"]],
+			["usage", ["usage", "src/shapes.ts"]]
+		])(
+			"%s with a --cursor past the end says so and offers the first page, in text and json",
+			async (_name, command) => {
+				const text = await run([...command, "--tsconfig", TSCONFIG, "--cursor", "9999"]);
+				const json = JSON.parse((await run([...command, "--tsconfig", TSCONFIG, "--cursor", "9999", "--json"])).stdout) as ListJson & {
+					hint?: string;
+				};
+
+				expect(text.code).toBe(0);
+				expect(text.stdout).toMatch(/cursor 9999 is past the end \(total \d+\)/);
+				expect(text.stdout).toMatch(/next: symantic .*--limit 50/);
+				expect(text.stdout).not.toContain("--cursor 9999 ");
+				expect(json.items).toEqual([]);
+				expect(json.hint).toMatch(/^cursor 9999 is past the end \(total \d+\)$/);
+				expect(json.next).toMatch(/^symantic /);
+				expect(json.next).not.toContain("--cursor");
+			},
+			30_000
+		);
+
 		it("shows no cut-off note when everything fits", async () => {
 			const text = await run(["find", "refs", "--tsconfig", TSCONFIG, "src/shapes.ts:makeCircle"]);
 			const json = JSON.parse((await run(["find", "refs", "--tsconfig", TSCONFIG, "src/shapes.ts:makeCircle", "--json"])).stdout) as ListJson;

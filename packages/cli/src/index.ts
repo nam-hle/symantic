@@ -146,12 +146,15 @@ interface ListOptions {
  */
 function outputList<T>(gain: GainMeta, items: T[], render: () => string, options: ListOptions): void {
 	const total = options.total ?? items.length;
-	const hint = total === 0 ? options.hint : undefined;
+	// A cursor past the end of a non-empty list is empty too: its notice doubles as the hint field.
+	const pastEnd = items.length === 0 && total > 0 && options.cut !== undefined;
+	const hint = total === 0 ? options.hint : pastEnd ? options.cut?.note : undefined;
 	const value = { items, total, ...(options.cut === undefined ? {} : { next: options.cut.next }), ...(hint === undefined ? {} : { hint }) };
 	const renderCut = (): string => (options.cut === undefined ? render() : `${render()}\n${options.cut.note}\nnext: ${options.cut.next}`);
 	output(gain, value, renderCut, options.json);
 
-	if (hint !== undefined && options.json !== true) {
+	// Text mode already prints a past-the-end notice on stdout with the cut line.
+	if (hint !== undefined && !pastEnd && options.json !== true) {
 		process.stderr.write(`hint: ${hint}\n`);
 	}
 }

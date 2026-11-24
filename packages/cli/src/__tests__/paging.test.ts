@@ -40,6 +40,17 @@ describe("continuation", () => {
 		});
 	});
 
+	it("points a cursor past the end back to the first page", () => {
+		expect(continuation({ offset: 500, limit: 50, shown: 0, total: 411 }, call)).toEqual({
+			note: "cursor 500 is past the end (total 411)",
+			next: "symantic find symbol e --contains --limit 50"
+		});
+	});
+
+	it("is undefined for an empty list, where there is no page to point at", () => {
+		expect(continuation({ offset: 0, limit: 50, shown: 0, total: 0 }, call)).toBeUndefined();
+	});
+
 	it("names the range of a later page", () => {
 		const result = continuation({ offset: 50, limit: 50, shown: 50, total: 410 }, call);
 

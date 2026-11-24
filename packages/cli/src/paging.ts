@@ -52,6 +52,14 @@ export function continuation(
 ): Continuation | undefined {
 	const nextOffset = page.offset + page.shown;
 
+	// An empty page of a non-empty list: the cursor overshot, so point back at the first page.
+	if (page.shown === 0 && page.total > 0 && page.offset >= page.total) {
+		return {
+			next: commandLine(call.words, { ...call.flags, limit: String(page.limit) }),
+			note: `cursor ${page.offset} is past the end (total ${page.total})`
+		};
+	}
+
 	if (nextOffset >= page.total) {
 		return undefined;
 	}
