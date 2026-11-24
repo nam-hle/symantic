@@ -130,6 +130,41 @@ describe("planRename + applyEditPlan against the language server", () => {
 		}
 	}, 30_000);
 
+	it("refuses a rename onto an existing module-level name and lists the new errors", async () => {
+		const dir = copyFixture();
+		writeFileSync(join(dir, "src/lib.ts"), "export const foo = 1;\nexport const bar = 2;\n");
+		const position = namePosition(dir, "src/lib.ts:foo");
+
+		const failure = await planRename({ baseDir: dir, newName: "bar", file: "src/lib.ts", position }).catch((error: unknown) => error);
+
+		expect(failure).toBeInstanceOf(EditRefusedError);
+		expect((failure as EditRefusedError).diagnostics?.length).toBeGreaterThan(0);
+		expect((failure as EditRefusedError).diagnostics?.[0]).toMatchObject({
+			file: "src/lib.ts",
+			code: expect.any(Number),
+			line: expect.any(Number),
+			message: expect.stringContaining("bar")
+		});
+		expect(read(dir, "src/lib.ts")).toBe("export const foo = 1;\nexport const bar = 2;\n");
+	}, 30_000);
+
+	it("refuses a local rename onto a sibling local", async () => {
+		const dir = copyFixture();
+		writeFileSync(join(dir, "src/local.ts"), "export function f() {\n\tconst a = 1;\n\tconst b = 2;\n\treturn a + b;\n}\n");
+		const position = namePosition(dir, "src/local.ts:f::a");
+
+		await expect(planRename({ baseDir: dir, newName: "b", file: "src/local.ts", position })).rejects.toThrow(EditRefusedError);
+	}, 30_000);
+
+	it("does not blame an edit for errors the project already had", async () => {
+		const dir = copyFixture();
+		writeFileSync(join(dir, "src/broken.ts"), 'export const n: number = "text";\n');
+		writeFileSync(join(dir, "src/b2.ts"), "export const n2 = 1;\nexport const k: string = 1;\n");
+		const position = namePosition(dir, "src/b2.ts:n2");
+
+		await expect(planRename({ baseDir: dir, newName: "n3", file: "src/b2.ts", position })).resolves.toBeDefined();
+	}, 30_000);
+
 	it("refuses to rename a library symbol", async () => {
 		const dir = copyFixture();
 		writeFileSync(join(dir, "src/lib.ts"), "export const biggest = Math.max(1, 2);\n");

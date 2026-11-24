@@ -13,10 +13,23 @@ export class EditConflictError extends Error {
 
 /** The language server declined the edit (a symbol it cannot change, or no symbol at the position). */
 export class EditRefusedError extends Error {
-	public constructor(message: string) {
+	/** Compiler errors the edit would introduce, when that is why it is refused. */
+	public readonly diagnostics?: EditDiagnostic[];
+
+	public constructor(message: string, diagnostics?: EditDiagnostic[]) {
 		super(message);
 		this.name = "EditRefusedError";
+		this.diagnostics = diagnostics;
 	}
+}
+
+export interface EditDiagnostic {
+	/** 1-based. */
+	line: number;
+	code: number;
+	/** Project-relative. */
+	file: string;
+	message: string;
 }
 
 /** Two edits of one file overlap; the server produced a plan that cannot be applied. */

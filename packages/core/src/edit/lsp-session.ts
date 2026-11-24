@@ -110,6 +110,22 @@ export class LspSession {
 		this.notify("textDocument/didOpen", { textDocument: { uri: pathToFileUri(path), languageId: "typescript", version: 1, text } });
 	}
 
+	/** Replace a document's text in the server, as an editor would after applying an edit. */
+	public changeDocument(path: string, text: string, version: number): void {
+		this.notify("textDocument/didChange", { contentChanges: [{ text }], textDocument: { version, uri: pathToFileUri(path) } });
+	}
+
+	/** Error diagnostics (severity 1) the server reports for an open document. */
+	public async errors(path: string): Promise<Array<{ code: number; line: number; message: string }>> {
+		const report = (await this.request("textDocument/diagnostic", { textDocument: { uri: pathToFileUri(path) } })) as {
+			items?: Array<{ code?: number | string; message: string; severity?: number; range: { start: { line: number } } }>;
+		} | null;
+
+		return (report?.items ?? [])
+			.filter((item) => item.severity === 1)
+			.map((item) => ({ code: Number(item.code), message: item.message, line: item.range.start.line + 1 }));
+	}
+
 	/** `shutdown` + `exit`, then wait for the process; kill it if it lingers. */
 	public async close(): Promise<void> {
 		if (this.#exited) {

@@ -7,8 +7,9 @@ import { readFileSync } from "node:fs";
 
 import { LspError, LspSession } from "./lsp-session.js";
 import { EditRefusedError, EditConflictError } from "./errors.js";
+import type { EditDiagnostic } from "./errors.js";
 import { pathToFileUri } from "./uri.js";
-import { stripBom, contentHash, normalizeWorkspaceEdit } from "./plan.js";
+import { stripBom, contentHash, applyTextEdits, normalizeWorkspaceEdit } from "./plan.js";
 import type { EditPlan, WorkspaceEdit } from "./plan.js";
 
 const RESERVED_WORDS = new Set(
@@ -80,6 +81,8 @@ export async function planRename(request: RenameRequest): Promise<EditPlan> {
 			const unopened = plan.files.filter((file) => !opened.has(file.path));
 
 			if (unopened.length === 0) {
+				await refuseNewErrors(session, plan, opened, request.baseDir);
+
 				return plan;
 			}
 
@@ -102,5 +105,43 @@ async function prepare(session: LspSession, location: object): Promise<void> {
 		}
 	} catch (error) {
 		throw error instanceof LspError ? new EditRefusedError(error.message) : error;
+	}
+}
+
+/**
+ * Apply the plan to the open documents inside the session and compare compiler errors per file
+ * and code before and after; any rise means the edit breaks the project (a name collision), so
+ * refuse. Plain shadowing that still compiles is not caught here.
+ */
+async function refuseNewErrors(session: LspSession, plan: EditPlan, opened: ReadonlyMap<string, string>, baseDir: string): Promise<void> {
+	const count = (errors: Array<{ code: number }>, code: number): number => errors.filter((error) => error.code === code).length;
+	const before = new Map<string, Array<{ code: number; line: number; message: string }>>();
+
+	for (const file of plan.files) {
+		before.set(file.path, await session.errors(resolve(baseDir, file.path)));
+	}
+
+	for (const file of plan.files) {
+		session.changeDocument(resolve(baseDir, file.path), applyTextEdits(stripBom(opened.get(file.path) ?? ""), file.edits), 2);
+	}
+
+	const introduced: EditDiagnostic[] = [];
+
+	for (const file of plan.files) {
+		const was = before.get(file.path) ?? [];
+		const now = await session.errors(resolve(baseDir, file.path));
+
+		for (const error of now) {
+			if (count(now, error.code) > count(was, error.code)) {
+				introduced.push({ file: file.path, code: error.code, line: error.line, message: error.message });
+			}
+		}
+	}
+
+	if (introduced.length > 0) {
+		throw new EditRefusedError(
+			`the edit would introduce ${introduced.length} compiler error${introduced.length === 1 ? "" : "s"}: ${introduced.map((d) => `TS${d.code} ${d.file}:${d.line} ${d.message}`).join("; ")}`,
+			introduced
+		);
 	}
 }
