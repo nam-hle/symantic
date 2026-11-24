@@ -128,9 +128,12 @@ type RegisterTool = (name: string, schema: ToolSchema, handler: (args: ToolArgs)
  */
 const register = server.registerTool.bind(server) as unknown as RegisterTool;
 
+/** The removed `engine` argument: accepted by the schema only to reject it with a clear message. */
+const removedEngineArg = z.never({ message: "engine was removed: symantic has a single engine now" }).optional().describe("Removed; do not pass");
+
 function tool(names: string[], schema: ToolSchema, handler: (args: ToolArgs) => ToolResult | Promise<ToolResult>): void {
 	for (const name of names) {
-		register(name, schema, handler);
+		register(name, { ...schema, inputSchema: { ...schema.inputSchema, engine: removedEngineArg } }, handler);
 	}
 }
 

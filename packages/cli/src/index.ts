@@ -438,4 +438,16 @@ const main = defineCommand({
 	meta: { name: "symantic", version: readVersion(), description: "Semantic symbol queries for TypeScript" }
 });
 
-void runMain(main);
+/** `--engine` selected a backend before the single-engine rewrite; citty would silently ignore it. */
+function rejectRemovedEngineFlag(argv: string[]): void {
+	if (argv.some((arg) => arg === "--engine" || arg.startsWith("--engine="))) {
+		process.stderr.write("--engine was removed: symantic has a single engine now (drop the flag)\n");
+		process.exitCode = 1;
+	}
+}
+
+rejectRemovedEngineFlag(process.argv.slice(2));
+
+if (process.exitCode !== 1) {
+	void runMain(main);
+}

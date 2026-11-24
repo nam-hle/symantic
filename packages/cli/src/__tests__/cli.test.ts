@@ -71,6 +71,15 @@ async function runWithHome(home: string, args: string[]): Promise<{ code: number
 }
 
 describe("CLI integration", () => {
+	describe("--engine (removed)", () => {
+		it("fails clearly instead of silently ignoring the flag", async () => {
+			const { code, stderr } = await run(["resolve", "--tsconfig", TSCONFIG, "--engine", "lsp", "src/shapes.ts:makeCircle"]);
+
+			expect(code).toBe(1);
+			expect(stderr).toContain("--engine was removed");
+		}, 20_000);
+	});
+
 	describe("resolve", () => {
 		it("resolves a known symbol and prints text by default", async () => {
 			const { code, stdout } = await run(["resolve", "--tsconfig", TSCONFIG, "src/shapes.ts:makeCircle"]);
