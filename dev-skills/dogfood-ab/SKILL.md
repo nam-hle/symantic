@@ -41,7 +41,7 @@ fallback counts are comparable.
 ## Loop
 
 1. **Setup.** Confirm `symantic` is on PATH and built from current source (`cd packages/cli &&
-npm link`; `pnpm nadle build --reporter agent` if core/cli changed — the link points at
+   npm link`; `pnpm nadle build --reporter agent` if core/cli changed — the link points at
    `dist/`). Find the target's `tsconfig.json`.
 2. **Spawn both arms in parallel** (one message, two `general-purpose` agents) with the prompts
    below, substituting `<target-dir>`, `<tsconfig>`, and `<question>` (the Fixed question unless
