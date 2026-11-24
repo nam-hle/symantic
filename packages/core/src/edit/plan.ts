@@ -5,6 +5,7 @@
 import { createHash } from "node:crypto";
 
 import { fileUriToPath } from "./uri.js";
+import { EditOverlapError } from "./errors.js";
 
 /** LSP position: 0-based line, UTF-16 code-unit character. */
 export interface LspPosition {
@@ -122,7 +123,7 @@ function lineStarts(text: string): number[] {
 	return starts;
 }
 
-/** Offset of an LSP position in `text`; a position past the end of its line or the text clamps. */
+/** Offset of an LSP position in `text`; a column past the end of its line clamps to the line content. */
 export function offsetOf(text: string, position: LspPosition, starts: number[] = lineStarts(text)): number {
 	const lineStart = starts[position.line];
 
@@ -130,24 +131,44 @@ export function offsetOf(text: string, position: LspPosition, starts: number[] =
 		return text.length;
 	}
 
-	const nextStart = starts[position.line + 1] ?? text.length;
+	const nextStart = starts[position.line + 1];
 
-	return Math.min(lineStart + position.character, nextStart);
+	if (nextStart === undefined) {
+		return Math.min(lineStart + position.character, text.length);
+	}
+
+	const terminator = text[nextStart - 2] === "\r" && text[nextStart - 1] === "\n" ? 2 : 1;
+
+	return Math.min(lineStart + position.character, nextStart - terminator);
 }
 
-/** Apply non-overlapping edits to `text`, last range first so earlier offsets stay valid. */
+/**
+ * Apply non-overlapping edits to `text`, last range first so earlier offsets stay valid. Inserts at
+ * one position keep their array order; identical duplicate edits count once.
+ */
 export function applyTextEdits(text: string, edits: TextEdit[]): string {
 	const starts = lineStarts(text);
+	const seen = new Set<string>();
 	const located = edits
-		.map((edit) => ({ newText: edit.newText, start: offsetOf(text, edit.range.start, starts), end: offsetOf(text, edit.range.end, starts) }))
-		.sort((a, b) => b.start - a.start || b.end - a.end);
+		.map((edit, index) => ({
+			index,
+			newText: edit.newText,
+			start: offsetOf(text, edit.range.start, starts),
+			end: offsetOf(text, edit.range.end, starts)
+		}))
+		.filter(({ start, end, newText }) => {
+			const key = `${start}:${end}:${newText}`;
+
+			return !seen.has(key) && seen.add(key);
+		})
+		.sort((a, b) => b.start - a.start || b.end - a.end || b.index - a.index);
 
 	let result = text;
 	let boundary = text.length;
 
 	for (const { start, end, newText } of located) {
 		if (end > boundary) {
-			throw new Error("overlapping edits");
+			throw new EditOverlapError("overlapping edits");
 		}
 
 		result = result.slice(0, start) + newText + result.slice(end);

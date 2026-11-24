@@ -80,5 +80,14 @@ export function editFailure(error: unknown, context: Record<string, unknown>): u
 		});
 	}
 
+	if (error.name === "EditOverlapError") {
+		const files = (error as Error & { paths?: string[] }).paths ?? [];
+
+		return new SymanticError("INTERNAL", error.message, {
+			context: { ...context, files },
+			hint: "the language server produced overlapping edits; nothing was written. Report it with the command that failed"
+		});
+	}
+
 	return error;
 }

@@ -5,9 +5,9 @@
 import { dirname, resolve } from "node:path";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 
-import { EditConflictError } from "./errors.js";
+import { EditConflictError, EditOverlapError } from "./errors.js";
 import { contentHash, applyTextEdits } from "./plan.js";
-import type { EditPlan } from "./plan.js";
+import type { EditPlan, TextEdit } from "./plan.js";
 
 export interface ApplyOptions {
 	/** Compute and report the result without writing. */
@@ -30,6 +30,14 @@ export interface EditResult {
 	unchanged?: true;
 }
 
+function editedText(before: string, path: string, edits: TextEdit[]): string {
+	try {
+		return applyTextEdits(before, edits);
+	} catch (error) {
+		throw error instanceof EditOverlapError ? new EditOverlapError(`overlapping edits in ${path}; nothing was written`, [path]) : error;
+	}
+}
+
 /** Apply `plan` under `baseDir`: every file read once, all checked, then all written, then the moves. */
 export function applyEditPlan(plan: EditPlan, options: ApplyOptions): EditResult {
 	const dryRun = options.dryRun === true;
@@ -46,7 +54,7 @@ export function applyEditPlan(plan: EditPlan, options: ApplyOptions): EditResult
 			continue;
 		}
 
-		const after = applyTextEdits(before, file.edits);
+		const after = editedText(before, file.path, file.edits);
 
 		if (after !== before) {
 			writes.push({ path: file.path, text: after, edits: file.edits.length });

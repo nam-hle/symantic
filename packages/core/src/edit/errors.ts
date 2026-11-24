@@ -18,3 +18,14 @@ export class EditRefusedError extends Error {
 		this.name = "EditRefusedError";
 	}
 }
+
+/** Two edits of one file overlap; the server produced a plan that cannot be applied. */
+export class EditOverlapError extends Error {
+	public readonly paths: string[];
+
+	public constructor(message: string, paths: string[] = []) {
+		super(message);
+		this.name = "EditOverlapError";
+		this.paths = paths;
+	}
+}

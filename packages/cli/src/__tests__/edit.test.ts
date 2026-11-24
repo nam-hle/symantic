@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { rmSync, mkdtempSync, writeFileSync } from "node:fs";
 
 import { it, expect, describe, afterEach } from "vitest";
-import { contentHash, EditConflictError, EditRefusedError } from "@symantic/core";
+import { contentHash, EditConflictError, EditOverlapError, EditRefusedError } from "@symantic/core";
 
 import { SymanticError, exitClassOf, toEnvelope } from "../errors.js";
 import { hashFiles, lastSegment, editFailure, identifierAt, renderRename, withNewName } from "../edit.js";
@@ -77,6 +77,12 @@ describe("editFailure", () => {
 
 		expect(envelope).toMatchObject({ code: "CONFLICT", context: { files: ["src/a.ts"] } });
 		expect(exitClassOf(envelope)).toBe(6);
+	});
+
+	it("maps overlapping edits to INTERNAL naming the files", () => {
+		const failure = editFailure(new EditOverlapError("overlap", ["src/a.ts"]), {}) as SymanticError;
+
+		expect(toEnvelope(failure)).toMatchObject({ code: "INTERNAL", context: { files: ["src/a.ts"] } });
 	});
 
 	it("passes other failures through", () => {

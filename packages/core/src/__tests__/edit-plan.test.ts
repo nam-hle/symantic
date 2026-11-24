@@ -5,7 +5,7 @@ import { rmSync, mkdirSync, existsSync, mkdtempSync, readFileSync, writeFileSync
 import { it, expect, describe, afterEach } from "vitest";
 
 import { applyEditPlan } from "../edit/apply.js";
-import { EditConflictError } from "../edit/errors.js";
+import { EditConflictError, EditOverlapError } from "../edit/errors.js";
 import type { EditPlan, TextEdit } from "../edit/plan.js";
 import { contentHash, offsetOf, applyTextEdits, toProjectPath, normalizeWorkspaceEdit } from "../edit/plan.js";
 
@@ -32,8 +32,25 @@ describe("applyTextEdits", () => {
 		expect(applyTextEdits("ab", [edit(0, 1, 99, "!")])).toBe("a!");
 	});
 
-	it("rejects overlapping edits", () => {
-		expect(() => applyTextEdits("abcdef", [edit(0, 0, 4, "x"), edit(0, 2, 5, "y")])).toThrow("overlapping edits");
+	it("rejects overlapping edits with a typed error", () => {
+		expect(() => applyTextEdits("abcdef", [edit(0, 0, 4, "x"), edit(0, 2, 5, "y")])).toThrow(EditOverlapError);
+	});
+
+	it("keeps array order for inserts at the same position", () => {
+		expect(applyTextEdits("x", [edit(0, 0, 0, "A"), edit(0, 0, 0, "B")])).toBe("ABx");
+	});
+
+	it("applies an insert at the start of a replaced range before the replacement", () => {
+		expect(applyTextEdits("foo", [edit(0, 0, 3, "bar"), edit(0, 0, 0, "// ")])).toBe("// bar");
+	});
+
+	it("drops identical duplicate edits", () => {
+		expect(applyTextEdits("foo", [edit(0, 0, 3, "bar"), edit(0, 0, 3, "bar")])).toBe("bar");
+	});
+
+	it("clamps a column past the end of a line to the line content, not over the newline", () => {
+		expect(applyTextEdits("ab\ncd", [edit(0, 1, 9, "X")])).toBe("aX\ncd");
+		expect(applyTextEdits("ab\r\ncd", [edit(0, 1, 9, "X")])).toBe("aX\r\ncd");
 	});
 });
 
@@ -159,6 +176,20 @@ describe("applyEditPlan", () => {
 		expect(() => applyEditPlan(plan(stale), { baseDir: dir })).toThrow(EditConflictError);
 		expect(readFileSync(join(dir, "b.ts"), "utf8")).toBe("x = foo\nfoo\n");
 		expect(readFileSync(join(dir, "a.ts"), "utf8")).toBe("foo // edited meanwhile\n");
+	});
+
+	it("names the file of overlapping edits and writes nothing", () => {
+		const dir = project({ "a.ts": "foo\n", "b.ts": "abcdef\n" });
+		const overlapping: EditPlan = {
+			moves: [],
+			files: [
+				{ path: "a.ts", edits: [edit(0, 0, 3, "x")] },
+				{ path: "b.ts", edits: [edit(0, 0, 4, "x"), edit(0, 2, 5, "y")] }
+			]
+		};
+
+		expect(() => applyEditPlan(overlapping, { baseDir: dir })).toThrow(expect.objectContaining({ name: "EditOverlapError", paths: ["b.ts"] }));
+		expect(readFileSync(join(dir, "a.ts"), "utf8")).toBe("foo\n");
 	});
 
 	it("moves files after editing, creating the target directory", () => {
