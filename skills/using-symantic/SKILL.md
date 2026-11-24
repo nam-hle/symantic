@@ -43,8 +43,9 @@ Rest, briefly: `view file` (whole file, lean; `--body` for each export's source)
 reference counts), `resolve` (qualified name → symbol or candidates). Flags: `symantic <cmd> --help`.
 
 `edit rename` writes the files it changes (import aliases, shorthand properties and re-exports
-included). On `CONFLICT` (exit 6) a file changed meanwhile and nothing was written: rerun it. A repeat
-of a finished rename reports `unchanged`.
+included). On `CONFLICT` (exit 6) a file changed meanwhile and nothing was written: rerun it. A rename onto
+an existing name is refused (`VALIDATION_ERROR` lists the new compiler errors); a symbol renamed to its own
+name reports `unchanged`.
 
 ## Addressing
 

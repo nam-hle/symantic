@@ -25,7 +25,9 @@ symantic edit rename src/foo.ts:Bar --to Baz --dry-run   # same result, nothing 
 ```
 
 `edit` is the only group that writes. `edit rename` returns `{ dryRun, changed: [{ path, edits }], unchanged? }`;
-renaming to the same name, or repeating a rename that is done, reports `unchanged` with exit 0.
+renaming a symbol to its own name reports `unchanged` with exit 0. A rename that would introduce compiler
+errors (a name collision) is refused with `VALIDATION_ERROR` listing them, and nothing is written; a rename
+that shadows an outer name without a compile error is not detected.
 
 ## JSON output
 

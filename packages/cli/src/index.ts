@@ -33,7 +33,7 @@ import { readVersion } from "./version.js";
 import { recordGain } from "./gain/track.js";
 import { runCli } from "./run-main.js";
 import { SymanticError } from "./errors.js";
-import { hashFiles, lastSegment, editFailure, identifierAt, renderRename, withNewName } from "./edit.js";
+import { hashFiles, lastSegment, editFailure, identifierAt, renderRename } from "./edit.js";
 import { DEFAULT_LIMIT, slicePage, continuation } from "./paging.js";
 import type { Continuation, FlagValues } from "./paging.js";
 import { SHORT_KINDS, kindList, positiveInt, nonNegativeInt } from "./flags.js";
@@ -658,26 +658,7 @@ const editRename = defineCommand({
 			const emit = (result: EditResult): void => {
 				process.stdout.write(`${args.json === true ? JSON.stringify(result, null, 2) : renderRename(result, { from: oldName, to: newName })}\n`);
 			};
-			let symbol: SymbolHandle;
-
-			try {
-				symbol = await resolveSymbolOrThrow(e, args.symbol);
-			} catch (error) {
-				// Repeating a finished rename: the old name is gone and the new one is there.
-				const done =
-					error instanceof SymanticError &&
-					error.code === "NOT_FOUND" &&
-					(await e.resolveSymbol(withNewName(args.symbol, newName))).kind !== "not-found";
-
-				if (!done) {
-					throw error;
-				}
-
-				emit({ changed: [], unchanged: true, dryRun: args["dry-run"] === true });
-
-				return;
-			}
-
+			const symbol = await resolveSymbolOrThrow(e, args.symbol);
 			const at = await e.symbolNamePosition(symbol);
 
 			if (at === undefined) {
