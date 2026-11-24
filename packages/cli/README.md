@@ -11,8 +11,8 @@ npm i -g @symantic/cli                         # → binary is `symantic`
 The nearest `tsconfig.json` is auto-discovered from the cwd (`--tsconfig <path>` to override).
 Output is token-lean, address-first text by default; add `--json` for the structured form.
 
-Commands group by intent — **`view`** (read code) and **`find`** (locate / trace), plus
-`resolve` / `imports` / `exports` / `usage` / `gain`:
+Commands group by intent — **`view`** (read code), **`find`** (locate / trace) and **`edit`** (change
+code), plus `resolve` / `imports` / `exports` / `usage` / `gain`:
 
 ```bash
 symantic view symbol src/foo.ts:Bar           # exact source of one declaration
@@ -20,7 +20,12 @@ symantic view context src/foo.ts:Bar          # source + callees + referenced ty
 symantic find refs src/foo.ts:Bar --exclude-tests
 symantic find callers src/foo.ts:Bar          # incoming call hierarchy
 symantic gain                                  # estimated token savings to date
+symantic edit rename src/foo.ts:Bar --to Baz  # rename across the project, writes the files
+symantic edit rename src/foo.ts:Bar --to Baz --dry-run   # same result, nothing written
 ```
+
+`edit` is the only group that writes. `edit rename` returns `{ dryRun, changed: [{ path, edits }], unchanged? }`;
+renaming to the same name, or repeating a rename that is done, reports `unchanged` with exit 0.
 
 ## JSON output
 
@@ -44,12 +49,13 @@ as one object `{ status, code, message, context, hint }`. Branch on `code` or th
 | 1    | unexpected error                                | `INTERNAL`                                                                              |
 | 2    | usage error                                     | `VALIDATION_ERROR`, `UNKNOWN_OPTION`, `UNKNOWN_COMMAND`, `MISSING_COMMAND`, `AMBIGUOUS` |
 | 3    | not found                                       | `NOT_FOUND`, `NO_PROJECT`                                                               |
+| 6    | a file changed under an edit                    | `CONFLICT` (nothing was written)                                                        |
 
 `context` names the offending input (`flag` and `value`, `symbol`, `tsconfig`); `MISSING_COMMAND` and
 `UNKNOWN_COMMAND` list `availableCommands`, `AMBIGUOUS` lists the `candidates` addresses.
 
 Run `symantic <command> --help` for flags: each page leads with runnable examples, marks required
-arguments, states what the command changes (nothing in the project), and lists the `--json` fields and
+arguments, states what the command changes (nothing in the project, or the files `edit` writes), and lists the `--json` fields and
 the exit codes. Full operation set and addressing scheme in the
 [root README](https://github.com/nam-hle/symantic#readme).
 

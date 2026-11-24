@@ -725,13 +725,13 @@ describe("CLI integration", () => {
 			expect(problems).toEqual([]);
 		}, 120_000);
 
-		it("states on every leaf that it changes nothing, and its --json fields", async () => {
+		it("states on every leaf what it changes, and its --json fields", async () => {
 			const problems: string[] = [];
 
 			for (const { path, help, group } of await walk([])) {
 				const name = ["symantic", ...path].join(" ");
 
-				if (!group && !help.includes("Changes: nothing")) {
+				if (!group && !/Changes: (nothing|project files)/.test(help)) {
 					problems.push(`${name}: no Changes line`);
 				}
 

@@ -6,11 +6,12 @@
  * Commands group by agent intent: `view` (read code) and `find` (locate/trace),
  * plus top-level addressing / whole-file facts.
  */
+import { dirname } from "node:path";
 import { existsSync } from "node:fs";
 
 import { defineCommand } from "citty";
-import { NS_SEP, createEngine } from "@symantic/core";
-import type { SymbolHandle, AsyncSymbolEngine } from "@symantic/core";
+import { NS_SEP, planRename, createEngine, applyEditPlan, isValidIdentifier } from "@symantic/core";
+import type { EditResult, SymbolHandle, AsyncSymbolEngine } from "@symantic/core";
 import {
 	renderSource,
 	renderRegion,
@@ -32,6 +33,7 @@ import { readVersion } from "./version.js";
 import { recordGain } from "./gain/track.js";
 import { runCli } from "./run-main.js";
 import { SymanticError } from "./errors.js";
+import { hashFiles, lastSegment, editFailure, identifierAt, renderRename, withNewName } from "./edit.js";
 import { DEFAULT_LIMIT, slicePage, continuation } from "./paging.js";
 import type { Continuation, FlagValues } from "./paging.js";
 import { SHORT_KINDS, kindList, positiveInt, nonNegativeInt } from "./flags.js";
@@ -57,6 +59,10 @@ function output(gain: GainMeta, value: unknown, render: () => string, jsonFlag: 
 
 const tsconfig = { type: "string", description: "Path to the project tsconfig.json (default: nearest one found upward from cwd)" } as const;
 const json = { type: "boolean", description: "Emit structured JSON instead of text" } as const;
+/** `--to` is the destination of every edit command; `what` says what it holds for this one. */
+const toFlag = (what: string) => ({ type: "string", required: true, description: `Destination of the edit: ${what}` }) as const;
+/** The one preview flag of the edit commands. */
+const dryRun = { type: "boolean", description: "Compute and report the edit without writing any file" } as const;
 
 /**
  * Run a command body with a fresh engine over the resolved tsconfig (explicit `--tsconfig`,
@@ -632,6 +638,85 @@ const find = defineCommand({
 	subCommands: { def: findDef, refs: findRefs, impls: findImpls, symbol: findSymbol, callers: findCallers, callees: findCallees }
 });
 
+// ---- edit: change code through the language server ----
+
+const editRename = defineCommand({
+	meta: { name: "rename", description: "Rename a symbol everywhere the compiler would" },
+	args: { json, tsconfig, symbol: symbolArg, to: toFlag("the new name, a valid identifier"), "dry-run": dryRun },
+	async run({ args }) {
+		const newName = args.to;
+		const oldName = lastSegment(args.symbol);
+
+		if (!isValidIdentifier(newName)) {
+			throw new SymanticError("VALIDATION_ERROR", `--to expects a valid identifier, got "${newName}"`, {
+				context: { flag: "to", value: newName, expected: "a valid identifier" }
+			});
+		}
+
+		await withEngine(args, async (e, tc) => {
+			const baseDir = dirname(tc);
+			const emit = (result: EditResult): void => {
+				process.stdout.write(`${args.json === true ? JSON.stringify(result, null, 2) : renderRename(result, { from: oldName, to: newName })}\n`);
+			};
+			let symbol: SymbolHandle;
+
+			try {
+				symbol = await resolveSymbolOrThrow(e, args.symbol);
+			} catch (error) {
+				// Repeating a finished rename: the old name is gone and the new one is there.
+				const done =
+					error instanceof SymanticError &&
+					error.code === "NOT_FOUND" &&
+					(await e.resolveSymbol(withNewName(args.symbol, newName))).kind !== "not-found";
+
+				if (!done) {
+					throw error;
+				}
+
+				emit({ changed: [], unchanged: true, dryRun: args["dry-run"] === true });
+
+				return;
+			}
+
+			const at = await e.symbolNamePosition(symbol);
+
+			if (at === undefined) {
+				throw new SymanticError("VALIDATION_ERROR", `cannot rename ${args.symbol}: the declaration has no name`, {
+					context: { symbol: args.symbol }
+				});
+			}
+
+			// The compiler would still rewrite `{ foo }` to `{ foo: foo }`; the same name is no edit at all.
+			if (identifierAt(baseDir, at) === newName) {
+				emit({ changed: [], unchanged: true, dryRun: args["dry-run"] === true });
+
+				return;
+			}
+
+			try {
+				const { references } = await e.findUsages(symbol);
+				const baseHashes = hashFiles(baseDir, [at.file, ...references.map((reference) => reference.position.file)]);
+				const plan = await planRename({ baseDir, baseHashes, newName, file: at.file, position: at });
+				const result = applyEditPlan(plan, { baseDir, dryRun: args["dry-run"] === true });
+
+				// The daemon re-stamps files on every call; asking now makes the next query see the edit.
+				if (!result.dryRun && result.changed.length > 0) {
+					await e.refreshIfStale();
+				}
+
+				emit(result);
+			} catch (error) {
+				throw editFailure(error, { symbol: args.symbol });
+			}
+		});
+	}
+});
+
+const edit = defineCommand({
+	meta: { name: "edit", description: "Change code: rename a symbol across the project" },
+	subCommands: { rename: editRename }
+});
+
 /** Hidden daemon entry point — spawned detached by daemonEngine, never typed by hand. */
 const daemon = defineCommand({
 	meta: { hidden: true, name: "_daemon", description: "(internal) run the warm-engine daemon for a tsconfig" },
@@ -650,7 +735,7 @@ const daemon = defineCommand({
 });
 
 const main = defineCommand({
-	subCommands: { view, find, gain, usage, resolve, imports, _daemon: daemon, exports: exportsCmd },
+	subCommands: { view, find, edit, gain, usage, resolve, imports, _daemon: daemon, exports: exportsCmd },
 	meta: { name: "symantic", version: readVersion(), description: "Semantic symbol queries for TypeScript" }
 });
 

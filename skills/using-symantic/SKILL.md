@@ -25,21 +25,26 @@ an **MCP server**, prefer its MCP tools over shelling out — same ops, same add
 
 ## Which op — question → command
 
-| Question                                                  | Command                                                                         |
-| --------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| Shape of this file?                                       | `symantic view outline <file>`                                                  |
-| Source of one declaration?                                | `symantic view symbol <file>:Name` (`::` nests, e.g. `Class::method`)           |
-| Members of a class / interface / namespace?               | `symantic view members <file>:Name`                                             |
-| Signature + callees + referenced types?                   | `symantic view context <file>:Name`                                             |
-| Where defined / used / implemented?                       | `symantic find def\|refs\|impls <file>:Name`                                    |
-| Who calls it / what does it call?                         | `symantic find callers\|callees <file>:Name`                                    |
-| Find a symbol, file unknown — exact name?                 | `symantic find symbol Name`                                                     |
-| Find a symbol, file unknown — only know part of the name? | `symantic find symbol Foo --contains` (substring; your orientation entry point) |
-| A file's imports / public surface?                        | `symantic imports <file>` · `symantic exports <file>`                           |
+| Question                                                  | Command                                                                                    |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| Shape of this file?                                       | `symantic view outline <file>`                                                             |
+| Source of one declaration?                                | `symantic view symbol <file>:Name` (`::` nests, e.g. `Class::method`)                      |
+| Members of a class / interface / namespace?               | `symantic view members <file>:Name`                                                        |
+| Signature + callees + referenced types?                   | `symantic view context <file>:Name`                                                        |
+| Where defined / used / implemented?                       | `symantic find def\|refs\|impls <file>:Name`                                               |
+| Who calls it / what does it call?                         | `symantic find callers\|callees <file>:Name`                                               |
+| Find a symbol, file unknown — exact name?                 | `symantic find symbol Name`                                                                |
+| Find a symbol, file unknown — only know part of the name? | `symantic find symbol Foo --contains` (substring; your orientation entry point)            |
+| A file's imports / public surface?                        | `symantic imports <file>` · `symantic exports <file>`                                      |
+| Rename a symbol everywhere?                               | `symantic edit rename <file>:Name --to New` (`--dry-run` previews; never find-and-replace) |
 
 Rest, briefly: `view file` (whole file, lean; `--body` for each export's source), `view body`
 (statement skeleton of a function), `view region <file>:start-end`, `usage` (per-export
 reference counts), `resolve` (qualified name → symbol or candidates). Flags: `symantic <cmd> --help`.
+
+`edit rename` writes the files it changes (import aliases, shorthand properties and re-exports
+included). On `CONFLICT` (exit 6) a file changed meanwhile and nothing was written: rerun it. A repeat
+of a finished rename reports `unchanged`.
 
 ## Addressing
 
