@@ -111,6 +111,17 @@ describe("CLI integration", () => {
 			expect(stderr).toContain("Unknown command");
 		}, 20_000);
 
+		it("treats --help beside an unknown command as a failed parse, and ignores --help after --", async () => {
+			const bogus = await runPiped(["bogus", "--help"]);
+			const nested = await runPiped(["find", "bogus", "--help"]);
+			const terminated = await runPiped(["find", "--", "--help"]);
+
+			for (const result of [bogus, nested, terminated]) {
+				expect(result.code).not.toBe(0);
+				expect(result.stdout).toBe("");
+			}
+		}, 30_000);
+
 		it("keeps --help usage on stdout with exit 0", async () => {
 			const { code, stdout } = await runPiped(["find", "--help"]);
 

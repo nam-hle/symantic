@@ -17,11 +17,16 @@ export const plain = (text: string): string => (colourEnabled() ? text : text.re
 const isHelpFlag = (arg: string): boolean => arg === "--help" || arg === "-h";
 
 /** The command (and its parent) whose usage a help request or a failed parse should show. */
-function usageTarget(root: CommandDef, rawArgs: string[]): [CommandDef, CommandDef | undefined] {
+function usageTarget(root: CommandDef, rawArgs: string[]): [CommandDef, CommandDef | undefined, string | undefined] {
 	let current = root;
 	let parent: CommandDef | undefined;
+	let unmatched: string | undefined;
 
 	for (const arg of rawArgs) {
+		if (arg === "--") {
+			break;
+		}
+
 		if (arg.startsWith("-")) {
 			continue;
 		}
@@ -29,6 +34,8 @@ function usageTarget(root: CommandDef, rawArgs: string[]): [CommandDef, CommandD
 		const next = (current.subCommands as Record<string, CommandDef> | undefined)?.[arg];
 
 		if (next === undefined) {
+			unmatched = current.subCommands === undefined ? undefined : arg;
+
 			break;
 		}
 
@@ -36,13 +43,16 @@ function usageTarget(root: CommandDef, rawArgs: string[]): [CommandDef, CommandD
 		current = next;
 	}
 
-	return [current, parent];
+	return [current, parent, unmatched];
 }
 
 /** Run `root` over `rawArgs`: help and version on stdout, a failed parse on stderr with exit 1. */
 export async function runCli(root: CommandDef, rawArgs: string[]): Promise<void> {
-	if (rawArgs.some(isHelpFlag)) {
-		process.stdout.write(`${plain(await renderUsage(...usageTarget(root, rawArgs)))}\n\n`);
+	const [helpCommand, helpParent, unmatched] = usageTarget(root, rawArgs);
+	const beforeTerminator = rawArgs.includes("--") ? rawArgs.slice(0, rawArgs.indexOf("--")) : rawArgs;
+
+	if (beforeTerminator.some(isHelpFlag) && unmatched === undefined) {
+		process.stdout.write(`${plain(await renderUsage(helpCommand, helpParent))}\n\n`);
 
 		return;
 	}
@@ -54,12 +64,13 @@ export async function runCli(root: CommandDef, rawArgs: string[]): Promise<void>
 	}
 
 	try {
-		await runCommand(root, { rawArgs });
+		// A help flag beside a word that names no command is a failed parse, not a help request.
+		await runCommand(root, { rawArgs: beforeTerminator.some(isHelpFlag) ? rawArgs.filter((arg) => !isHelpFlag(arg)) : rawArgs });
 	} catch (error) {
 		process.exitCode = 1;
 
 		if (error instanceof Error && error.name === "CLIError") {
-			process.stderr.write(`${plain(await renderUsage(...usageTarget(root, rawArgs)))}\n\n${plain(error.message)}\n`);
+			process.stderr.write(`${plain(await renderUsage(helpCommand, helpParent))}\n\n${plain(error.message)}\n`);
 
 			return;
 		}
