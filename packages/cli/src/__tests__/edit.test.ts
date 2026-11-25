@@ -3,20 +3,15 @@ import { join } from "node:path";
 import { rmSync, mkdtempSync, writeFileSync } from "node:fs";
 
 import { it, expect, describe, afterEach } from "vitest";
-import { contentHash, EditConflictError, EditRefusedError } from "@symantic/core";
+import { contentHash, EditConflictError, EditOverlapError, EditRefusedError, EditWriteError } from "@symantic/core";
 
 import { SymanticError, exitClassOf, toEnvelope } from "../errors.js";
-import { hashFiles, lastSegment, editFailure, identifierAt, renderRename, withNewName } from "../edit.js";
+import { hashFiles, lastSegment, editFailure, identifierAt, renderRename } from "../edit.js";
 
-describe("address rewriting", () => {
+describe("address reading", () => {
 	it("reads the last name segment", () => {
 		expect(lastSegment("src/a.ts:foo")).toBe("foo");
 		expect(lastSegment("src/a.ts:Outer::inner#2")).toBe("inner");
-	});
-
-	it("replaces the last name segment and keeps the path and the index", () => {
-		expect(withNewName("src/a.ts:foo", "run")).toBe("src/a.ts:run");
-		expect(withNewName("src/a.ts:Outer::inner#2", "run")).toBe("src/a.ts:Outer::run#2");
 	});
 });
 
@@ -71,12 +66,33 @@ describe("editFailure", () => {
 		expect(toEnvelope(failure)).toMatchObject({ code: "VALIDATION_ERROR", context: { symbol: "src/a.ts:x", reason: "not renamable" } });
 	});
 
+	it("carries the introduced compiler errors in the context", () => {
+		const diagnostics = [{ file: "src/a.ts", code: 2451, line: 2, message: "Cannot redeclare block-scoped variable 'bar'." }];
+		const failure = editFailure(new EditRefusedError("breaks", diagnostics), {}) as SymanticError;
+
+		expect(toEnvelope(failure)).toMatchObject({ code: "VALIDATION_ERROR", context: { diagnostics } });
+	});
+
 	it("maps a drifted file to CONFLICT, exit class 6, naming the files", () => {
 		const failure = editFailure(new EditConflictError("changed", ["src/a.ts"]), {}) as SymanticError;
 		const envelope = toEnvelope(failure);
 
 		expect(envelope).toMatchObject({ code: "CONFLICT", context: { files: ["src/a.ts"] } });
 		expect(exitClassOf(envelope)).toBe(6);
+	});
+
+	it("maps a failed write to WRITE_FAILED, exit class 5, listing written and restored files", () => {
+		const failure = editFailure(new EditWriteError("no", { failed: "b.ts", written: ["a.ts"], restored: ["a.ts"] }), {}) as SymanticError;
+		const envelope = toEnvelope(failure);
+
+		expect(envelope).toMatchObject({ code: "WRITE_FAILED", context: { failed: "b.ts", written: ["a.ts"], restored: ["a.ts"] } });
+		expect(exitClassOf(envelope)).toBe(5);
+	});
+
+	it("maps overlapping edits to INTERNAL naming the files", () => {
+		const failure = editFailure(new EditOverlapError("overlap", ["src/a.ts"]), {}) as SymanticError;
+
+		expect(toEnvelope(failure)).toMatchObject({ code: "INTERNAL", context: { files: ["src/a.ts"] } });
 	});
 
 	it("passes other failures through", () => {

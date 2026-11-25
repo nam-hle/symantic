@@ -102,6 +102,87 @@ describe("planRename + applyEditPlan against the language server", () => {
 		expect(read(dir, "src/foo.ts")).toContain("export function foo()");
 	}, 30_000);
 
+	it("keeps columns right across files that start with a UTF-8 BOM", async () => {
+		const dir = copyFixture();
+
+		for (const file of ["src/foo.ts", "src/use.ts"]) {
+			writeFileSync(join(dir, file), `\ufeff${read(dir, file)}`);
+		}
+
+		const position = namePosition(dir, "src/foo.ts:foo");
+		const plan = await planRename({ baseDir: dir, newName: "run", file: "src/foo.ts", position });
+		applyEditPlan(plan, { baseDir: dir });
+
+		// The fixture may be checked out with CRLF (Windows CI); the rename keeps line endings, so compare without them.
+		expect(read(dir, "src/use.ts").replaceAll("\r\n", "\n")).toBe(
+			'\ufeffimport { run as alias } from "./foo.js";\n\nexport const total = alias() + 1;\n'
+		);
+		expect(read(dir, "src/foo.ts").startsWith("\ufeffexport function run(): number {")).toBe(true);
+		expect(read(dir, "src/direct.ts")).toContain("export const again = run();");
+	}, 30_000);
+
+	it("hashes every file of the plan, including ones the caller did not name", async () => {
+		const dir = copyFixture();
+		const position = namePosition(dir, "src/foo.ts:foo");
+		const plan = await planRename({ baseDir: dir, newName: "run", file: "src/foo.ts", position });
+
+		expect(plan.files.map((file) => file.path).sort()).toEqual(["src/direct.ts", "src/foo.ts", "src/index.ts", "src/use.ts"]);
+
+		for (const file of plan.files) {
+			expect(file.baseHash).toBe(contentHash(read(dir, file.path)));
+		}
+	}, 30_000);
+
+	it("renames in TSX files without reading JSX as type syntax", async () => {
+		const dir = copyFixture();
+		writeFileSync(
+			join(dir, "tsconfig.json"),
+			JSON.stringify({ include: ["src"], compilerOptions: { jsx: "preserve", strict: true, module: "nodenext" } })
+		);
+		writeFileSync(join(dir, "src/view.tsx"), "export const Foo = () => <div>x</div>;\n");
+		writeFileSync(join(dir, "src/page.tsx"), 'import { Foo } from "./view.js";\nexport const page = <Foo />;\n');
+		const position = namePosition(dir, "src/view.tsx:Foo");
+
+		applyEditPlan(await planRename({ baseDir: dir, newName: "Baz", file: "src/view.tsx", position }), { baseDir: dir });
+
+		expect(read(dir, "src/page.tsx")).toContain("<Baz />");
+	}, 30_000);
+
+	it("refuses a rename onto an existing module-level name and lists the new errors", async () => {
+		const dir = copyFixture();
+		writeFileSync(join(dir, "src/lib.ts"), "export const foo = 1;\nexport const bar = 2;\n");
+		const position = namePosition(dir, "src/lib.ts:foo");
+
+		const failure = await planRename({ baseDir: dir, newName: "bar", file: "src/lib.ts", position }).catch((error: unknown) => error);
+
+		expect(failure).toBeInstanceOf(EditRefusedError);
+		expect((failure as EditRefusedError).diagnostics?.length).toBeGreaterThan(0);
+		expect((failure as EditRefusedError).diagnostics?.[0]).toMatchObject({
+			file: "src/lib.ts",
+			code: expect.any(Number),
+			line: expect.any(Number),
+			message: expect.stringContaining("bar")
+		});
+		expect(read(dir, "src/lib.ts")).toBe("export const foo = 1;\nexport const bar = 2;\n");
+	}, 30_000);
+
+	it("refuses a local rename onto a sibling local", async () => {
+		const dir = copyFixture();
+		writeFileSync(join(dir, "src/local.ts"), "export function f() {\n\tconst a = 1;\n\tconst b = 2;\n\treturn a + b;\n}\n");
+		const position = namePosition(dir, "src/local.ts:f::a");
+
+		await expect(planRename({ baseDir: dir, newName: "b", file: "src/local.ts", position })).rejects.toThrow(EditRefusedError);
+	}, 30_000);
+
+	it("does not blame an edit for errors the project already had", async () => {
+		const dir = copyFixture();
+		writeFileSync(join(dir, "src/broken.ts"), 'export const n: number = "text";\n');
+		writeFileSync(join(dir, "src/b2.ts"), "export const n2 = 1;\nexport const k: string = 1;\n");
+		const position = namePosition(dir, "src/b2.ts:n2");
+
+		await expect(planRename({ baseDir: dir, newName: "n3", file: "src/b2.ts", position })).resolves.toBeDefined();
+	}, 30_000);
+
 	it("refuses to rename a library symbol", async () => {
 		const dir = copyFixture();
 		writeFileSync(join(dir, "src/lib.ts"), "export const biggest = Math.max(1, 2);\n");

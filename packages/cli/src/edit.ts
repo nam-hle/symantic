@@ -15,13 +15,6 @@ export function lastSegment(address: string): string {
 	return /([^:#]*)(?:#\d+)?$/.exec(address)?.[1] ?? address;
 }
 
-/** The address with its last name segment replaced: `src/a.ts:Foo::bar#1` and `run` give `src/a.ts:Foo::run#1`. */
-export function withNewName(address: string, name: string): string {
-	const match = /^(.*?)[^:#]*(#\d+)?$/.exec(address);
-
-	return `${match?.[1] ?? ""}${name}${match?.[2] ?? ""}`;
-}
-
 const plural = (count: number, noun: string): string => `${count} ${noun}${count === 1 ? "" : "s"}`;
 
 /** Text form of a rename result: a headline, then each changed file with its edit count. */
@@ -66,8 +59,12 @@ export function editFailure(error: unknown, context: Record<string, unknown>): u
 
 	if (error.name === "EditRefusedError") {
 		return new SymanticError("VALIDATION_ERROR", `cannot rename: ${error.message}`, {
-			context: { ...context, reason: error.message },
-			hint: "only symbols declared in the project can be renamed; check the address with `symantic resolve <file>:<name>`"
+			context: {
+				...context,
+				reason: error.message,
+				...((error as { diagnostics?: unknown }).diagnostics === undefined ? {} : { diagnostics: (error as { diagnostics?: unknown }).diagnostics })
+			},
+			hint: "only symbols declared in the project can be renamed, and a rename must not introduce compiler errors; check the address with `symantic resolve <file>:<name>`"
 		});
 	}
 
@@ -77,6 +74,21 @@ export function editFailure(error: unknown, context: Record<string, unknown>): u
 		return new SymanticError("CONFLICT", error.message, {
 			context: { ...context, files },
 			hint: "a file changed while the edit was computed; nothing was written, rerun the command"
+		});
+	}
+
+	if (error.name === "EditWriteError") {
+		const { failed, written, restored } = error as Error & { failed: string; written: string[]; restored: string[] };
+
+		return new SymanticError("WRITE_FAILED", error.message, { context: { ...context, failed, written, restored } });
+	}
+
+	if (error.name === "EditOverlapError") {
+		const files = (error as Error & { paths?: string[] }).paths ?? [];
+
+		return new SymanticError("INTERNAL", error.message, {
+			context: { ...context, files },
+			hint: "the language server produced overlapping edits; nothing was written. Report it with the command that failed"
 		});
 	}
 

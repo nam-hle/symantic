@@ -1,11 +1,12 @@
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { rmSync, mkdirSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { rmSync, statSync, chmodSync, mkdirSync, existsSync, readdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 
 import { it, expect, describe, afterEach } from "vitest";
 
 import { applyEditPlan } from "../edit/apply.js";
-import { EditConflictError } from "../edit/errors.js";
+import type { ApplyOptions, EditResult } from "../edit/apply.js";
+import { EditConflictError, EditOverlapError } from "../edit/errors.js";
 import type { EditPlan, TextEdit } from "../edit/plan.js";
 import { contentHash, offsetOf, applyTextEdits, toProjectPath, normalizeWorkspaceEdit } from "../edit/plan.js";
 
@@ -13,6 +14,13 @@ const edit = (line: number, from: number, to: number, newText: string): TextEdit
 	newText,
 	range: { start: { line, character: from }, end: { line, character: to } }
 });
+
+/** Apply a plan whose files carry the hash of what is on disk now, as a plan from a server session does. */
+const apply = (plan: EditPlan, options: ApplyOptions): EditResult =>
+	applyEditPlan(
+		{ ...plan, files: plan.files.map((file) => ({ baseHash: contentHash(readFileSync(join(options.baseDir, file.path), "utf8")), ...file })) },
+		options
+	);
 
 describe("applyTextEdits", () => {
 	it("applies several edits, last range first, regardless of input order", () => {
@@ -32,8 +40,25 @@ describe("applyTextEdits", () => {
 		expect(applyTextEdits("ab", [edit(0, 1, 99, "!")])).toBe("a!");
 	});
 
-	it("rejects overlapping edits", () => {
-		expect(() => applyTextEdits("abcdef", [edit(0, 0, 4, "x"), edit(0, 2, 5, "y")])).toThrow("overlapping edits");
+	it("rejects overlapping edits with a typed error", () => {
+		expect(() => applyTextEdits("abcdef", [edit(0, 0, 4, "x"), edit(0, 2, 5, "y")])).toThrow(EditOverlapError);
+	});
+
+	it("keeps array order for inserts at the same position", () => {
+		expect(applyTextEdits("x", [edit(0, 0, 0, "A"), edit(0, 0, 0, "B")])).toBe("ABx");
+	});
+
+	it("applies an insert at the start of a replaced range before the replacement", () => {
+		expect(applyTextEdits("foo", [edit(0, 0, 3, "bar"), edit(0, 0, 0, "// ")])).toBe("// bar");
+	});
+
+	it("drops identical duplicate edits", () => {
+		expect(applyTextEdits("foo", [edit(0, 0, 3, "bar"), edit(0, 0, 3, "bar")])).toBe("bar");
+	});
+
+	it("clamps a column past the end of a line to the line content, not over the newline", () => {
+		expect(applyTextEdits("ab\ncd", [edit(0, 1, 9, "X")])).toBe("aX\ncd");
+		expect(applyTextEdits("ab\r\ncd", [edit(0, 1, 9, "X")])).toBe("aX\r\ncd");
 	});
 });
 
@@ -123,7 +148,7 @@ describe("applyEditPlan", () => {
 
 	it("writes every file and reports edit counts, sorted by path", () => {
 		const dir = project({ "a.ts": "foo\n", "b.ts": "x = foo\nfoo\n" });
-		const result = applyEditPlan(plan(contentHash("foo\n")), { baseDir: dir });
+		const result = apply(plan(contentHash("foo\n")), { baseDir: dir });
 
 		expect(result).toEqual({
 			dryRun: false,
@@ -138,7 +163,7 @@ describe("applyEditPlan", () => {
 
 	it("writes nothing on a dry run but reports the same result", () => {
 		const dir = project({ "a.ts": "foo\n", "b.ts": "x = foo\nfoo\n" });
-		const result = applyEditPlan(plan(), { baseDir: dir, dryRun: true });
+		const result = apply(plan(), { baseDir: dir, dryRun: true });
 
 		expect(result.dryRun).toBe(true);
 		expect(result.changed.map((file) => file.edits)).toEqual([1, 2]);
@@ -148,7 +173,7 @@ describe("applyEditPlan", () => {
 	it("reports unchanged when the files already hold the result", () => {
 		const dir = project({ "a.ts": "run\n", "b.ts": "x = run\nrun\n" });
 
-		expect(applyEditPlan(plan(), { baseDir: dir })).toEqual({ dryRun: false, changed: [], unchanged: true });
+		expect(apply(plan(), { baseDir: dir })).toEqual({ dryRun: false, changed: [], unchanged: true });
 	});
 
 	it("refuses a drifted file with CONFLICT and writes nothing", () => {
@@ -161,10 +186,79 @@ describe("applyEditPlan", () => {
 		expect(readFileSync(join(dir, "a.ts"), "utf8")).toBe("foo // edited meanwhile\n");
 	});
 
+	it("refuses a plan file without a base hash, writing nothing", () => {
+		const dir = project({ "a.ts": "foo\n" });
+
+		expect(() => applyEditPlan({ moves: [], files: [{ path: "a.ts", edits: [edit(0, 0, 3, "run")] }] }, { baseDir: dir })).toThrow(EditConflictError);
+		expect(readFileSync(join(dir, "a.ts"), "utf8")).toBe("foo\n");
+	});
+
+	it("keeps a UTF-8 BOM out of the columns and on the file", () => {
+		const dir = project({ "a.ts": "\ufefffoo\n" });
+		const result = apply(
+			{ moves: [], files: [{ path: "a.ts", baseHash: contentHash("\ufefffoo\n"), edits: [edit(0, 0, 3, "run")] }] },
+			{ baseDir: dir }
+		);
+
+		expect(result.changed).toEqual([{ path: "a.ts", edits: 1 }]);
+		expect(readFileSync(join(dir, "a.ts"), "utf8")).toBe("\ufeffrun\n");
+	});
+
+	it("names the file of overlapping edits and writes nothing", () => {
+		const dir = project({ "a.ts": "foo\n", "b.ts": "abcdef\n" });
+		const overlapping: EditPlan = {
+			moves: [],
+			files: [
+				{ path: "a.ts", edits: [edit(0, 0, 3, "x")] },
+				{ path: "b.ts", edits: [edit(0, 0, 4, "x"), edit(0, 2, 5, "y")] }
+			]
+		};
+
+		expect(() => apply(overlapping, { baseDir: dir })).toThrow(expect.objectContaining({ name: "EditOverlapError", paths: ["b.ts"] }));
+		expect(readFileSync(join(dir, "a.ts"), "utf8")).toBe("foo\n");
+	});
+
+	describe.skipIf(process.platform === "win32" || process.getuid?.() === 0)("when a file cannot be written", () => {
+		it("checks every target first: a read-only file means nothing is written", () => {
+			const dir = project({ "a.ts": "foo\n", "b.ts": "foo\n" });
+			chmodSync(join(dir, "b.ts"), 0o444);
+			const both: EditPlan = { moves: [], files: ["a.ts", "b.ts"].map((path) => ({ path, edits: [edit(0, 0, 3, "run")] })) };
+
+			expect(() => apply(both, { baseDir: dir })).toThrow(expect.objectContaining({ name: "EditWriteError", failed: "b.ts", written: [] }));
+			expect(readFileSync(join(dir, "a.ts"), "utf8")).toBe("foo\n");
+		});
+
+		it("restores files already written when a later write fails", () => {
+			const dir = project({ "a.ts": "foo\n", "sub/b.ts": "foo\n" });
+			chmodSync(join(dir, "sub"), 0o555);
+			const both: EditPlan = { moves: [], files: ["a.ts", "sub/b.ts"].map((path) => ({ path, edits: [edit(0, 0, 3, "run")] })) };
+
+			try {
+				expect(() => apply(both, { baseDir: dir })).toThrow(
+					expect.objectContaining({ name: "EditWriteError", failed: "sub/b.ts", written: ["a.ts"], restored: ["a.ts"] })
+				);
+				expect(readFileSync(join(dir, "a.ts"), "utf8")).toBe("foo\n");
+				expect(readdirSync(dir).filter((name) => name.endsWith(".tmp"))).toEqual([]);
+			} finally {
+				chmodSync(join(dir, "sub"), 0o755);
+			}
+		});
+	});
+
+	it("writes through a temp file and keeps the file mode", () => {
+		const dir = project({ "a.ts": "foo\n" });
+		chmodSync(join(dir, "a.ts"), 0o640);
+		apply({ moves: [], files: [{ path: "a.ts", edits: [edit(0, 0, 3, "run")] }] }, { baseDir: dir });
+
+		expect(readFileSync(join(dir, "a.ts"), "utf8")).toBe("run\n");
+		expect(readdirSync(dir)).toEqual(["a.ts"]);
+		expect(process.platform === "win32" || statSync(join(dir, "a.ts")).mode % 0o1000 === 0o640).toBe(true);
+	});
+
 	it("moves files after editing, creating the target directory", () => {
 		const dir = project({ "a.ts": "foo\n" });
 		const moving: EditPlan = { files: [{ path: "a.ts", edits: [edit(0, 0, 3, "run")] }], moves: [{ from: "a.ts", to: "lib/a.ts" }] };
-		const result = applyEditPlan(moving, { baseDir: dir });
+		const result = apply(moving, { baseDir: dir });
 
 		expect(result.moved).toEqual([{ from: "a.ts", to: "lib/a.ts" }]);
 		expect(existsSync(join(dir, "a.ts"))).toBe(false);
@@ -174,7 +268,7 @@ describe("applyEditPlan", () => {
 	it("refuses a move onto an existing file with CONFLICT", () => {
 		const dir = project({ "a.ts": "foo\n", "b.ts": "bar\n" });
 
-		expect(() => applyEditPlan({ files: [], moves: [{ from: "a.ts", to: "b.ts" }] }, { baseDir: dir })).toThrow(EditConflictError);
+		expect(() => apply({ files: [], moves: [{ from: "a.ts", to: "b.ts" }] }, { baseDir: dir })).toThrow(EditConflictError);
 		expect(existsSync(join(dir, "a.ts"))).toBe(true);
 	});
 });

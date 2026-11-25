@@ -3,7 +3,7 @@ import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { join, dirname } from "node:path";
 import { execFile } from "node:child_process";
-import { cpSync, rmSync, existsSync, mkdtempSync, readdirSync, readFileSync } from "node:fs";
+import { cpSync, rmSync, chmodSync, writeFileSync, existsSync, mkdtempSync, readdirSync, readFileSync } from "node:fs";
 
 import { it, expect, describe, afterEach } from "vitest";
 
@@ -82,14 +82,23 @@ describe("edit rename", () => {
 		expect(read(dir, "src/foo.ts")).toBe(before);
 	}, 60_000);
 
-	it("reports unchanged when the rename was already done", async () => {
+	it("does not call a finished rename unchanged: the old name is gone, so it is NOT_FOUND", async () => {
 		const dir = copyFixture();
 		await run(["edit", "rename", "src/foo.ts:foo", "--to", "run"], dir);
 		const again = await run(["edit", "rename", "src/foo.ts:foo", "--to", "run", "--json"], dir);
 
-		expect(again.code).toBe(0);
-		expect(JSON.parse(again.stdout)).toEqual({ dryRun: false, changed: [], unchanged: true });
+		expect(again.code).toBe(3);
+		expect(JSON.parse(again.stderr)).toMatchObject({ code: "NOT_FOUND" });
 	}, 120_000);
+
+	it("reports a typo as NOT_FOUND with did-you-mean even when the new name exists", async () => {
+		const dir = copyFixture();
+		const { code, stdout, stderr } = await run(["edit", "rename", "src/foo.ts:fooo", "--to", "bag", "--json"], dir);
+
+		expect(code).toBe(3);
+		expect(stdout).toBe("");
+		expect(JSON.parse(stderr)).toMatchObject({ code: "NOT_FOUND", context: { suggestions: ["foo"] } });
+	}, 60_000);
 
 	it("reports unchanged when renaming a symbol to its own name", async () => {
 		const dir = copyFixture();
@@ -98,6 +107,38 @@ describe("edit rename", () => {
 		expect(code).toBe(0);
 		expect(stdout).toContain("Unchanged");
 		expect(read(dir, "src/foo.ts")).toContain("export function foo()");
+	}, 60_000);
+
+	it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+		"fails with WRITE_FAILED and writes nothing when a file is read-only",
+		async () => {
+			const dir = copyFixture();
+			chmodSync(join(dir, "src/use.ts"), 0o444);
+			const { code, stderr } = await run(["edit", "rename", "src/foo.ts:foo", "--to", "run", "--json"], dir);
+
+			expect(code).toBe(5);
+			expect(JSON.parse(stderr)).toMatchObject({ code: "WRITE_FAILED", context: { failed: "src/use.ts", written: [] } });
+			expect(read(dir, "src/foo.ts")).toContain("export function foo()");
+		},
+		60_000
+	);
+
+	it("refuses a rename onto an existing name and writes nothing", async () => {
+		const dir = copyFixture();
+		writeFileSync(join(dir, "src/lib.ts"), "export const alpha = 1;\nexport const beta = 2;\n");
+		const { code, stderr } = await run(["edit", "rename", "src/lib.ts:alpha", "--to", "beta", "--json"], dir);
+
+		expect(code).toBe(2);
+		expect(JSON.parse(stderr)).toMatchObject({
+			code: "VALIDATION_ERROR",
+			context: {
+				diagnostics: [
+					{ file: "src/lib.ts", line: 1 },
+					{ file: "src/lib.ts", line: 2 }
+				]
+			}
+		});
+		expect(read(dir, "src/lib.ts")).toBe("export const alpha = 1;\nexport const beta = 2;\n");
 	}, 60_000);
 
 	it("fails with VALIDATION_ERROR naming --to for an invalid new name", async () => {
