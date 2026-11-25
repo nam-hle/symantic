@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.4.0](https://github.com/nam-hle/symantic/compare/v0.3.2...v0.4.0) (2026-11-25)
+
+
+### ⚠ BREAKING CHANGES
+
+* **cli:** find symbol, find refs, exports and usage return at most 50 items unless --limit is given, and find refs --json carries next (a command) instead of nextCursor. Callers that need the whole list must raise --limit or follow next.
+* **cli:** failures exit 2 (usage: bad flag, value, command or ambiguous address) or 3 (not found: symbol, tsconfig) instead of 1, and stderr is an error line plus hint, or a JSON envelope under --json. Callers that test for exit 1 or parse the old messages must switch to the exit classes or the code field.
+* **core:** the `--engine` CLI option, the MCP `engine` argument, `EngineKind`, `LspEngine`, `createEngine({ engine })` and the `tsmorph`/`lsp` split are removed. `find refs` results now contain the declaration site (kind `declaration`), and `find def` on an import binding resolves to the true declaration instead of reporting not-found. The CLI daemon is keyed by tsconfig and version only.
+
+### Features
+
+* **cli:** Add edit move ([#166](https://github.com/nam-hle/symantic/issues/166)) ([86b6f85](https://github.com/nam-hle/symantic/commit/86b6f85b38d29d41994bef2332f32d18dc47408d))
+* **cli:** Add edit rename ([#163](https://github.com/nam-hle/symantic/issues/163)) ([04f356f](https://github.com/nam-hle/symantic/commit/04f356fcec123229209e9a56d9e1354de2c4c247))
+* **cli:** Bound list commands and say when a result is cut ([#154](https://github.com/nam-hle/symantic/issues/154)) ([b614c24](https://github.com/nam-hle/symantic/commit/b614c2474d4212b0f8028e214a241996e4f85548))
+* **cli:** Report failures as one envelope with exit classes ([#151](https://github.com/nam-hle/symantic/issues/151)) ([bf21c05](https://github.com/nam-hle/symantic/commit/bf21c058cde905db3e6cbdd6aab439283a6a8178))
+* **core:** Usage --members reports class/interface member ref counts ([ef22ffe](https://github.com/nam-hle/symantic/commit/ef22ffee1793d7bb68e290080655f232f90c4db4)), closes [#119](https://github.com/nam-hle/symantic/issues/119)
+* **core:** Use the TypeScript 7 API engine ([#129](https://github.com/nam-hle/symantic/issues/129)) ([8824701](https://github.com/nam-hle/symantic/commit/88247018dd1aa6263edf68ddac93b1146795122a))
+
+
+### Bug Fixes
+
+* **core:** Find callers names arrow/property-bound callers, not (anonymous) ([9b08aa3](https://github.com/nam-hle/symantic/commit/9b08aa30b224340974c1ee0f44329b7ff69cd7d6)), closes [#118](https://github.com/nam-hle/symantic/issues/118)
+
+
+### Internal
+
+* Move to TypeScript 7 ([#127](https://github.com/nam-hle/symantic/issues/127)) ([0f927ac](https://github.com/nam-hle/symantic/commit/0f927ac871e8c827697500192273d252f66c2fac))
+* Replace eslint and prettier with oxlint and oxfmt ([#130](https://github.com/nam-hle/symantic/issues/130)) ([043f6f5](https://github.com/nam-hle/symantic/commit/043f6f50abb0e973c3f8000f25bc5e3f6cc71339))
+
 ## [0.3.2](https://github.com/nam-hle/symantic/compare/v0.3.1...v0.3.2) (2026-06-13)
 
 

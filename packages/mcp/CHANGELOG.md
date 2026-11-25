@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.4.0](https://github.com/nam-hle/symantic/compare/v0.3.2...v0.4.0) (2026-11-25)
+
+
+### ⚠ BREAKING CHANGES
+
+* **core:** the `--engine` CLI option, the MCP `engine` argument, `EngineKind`, `LspEngine`, `createEngine({ engine })` and the `tsmorph`/`lsp` split are removed. `find refs` results now contain the declaration site (kind `declaration`), and `find def` on an import binding resolves to the true declaration instead of reporting not-found. The CLI daemon is keyed by tsconfig and version only.
+
+### Features
+
+* **core:** Use the TypeScript 7 API engine ([#129](https://github.com/nam-hle/symantic/issues/129)) ([8824701](https://github.com/nam-hle/symantic/commit/88247018dd1aa6263edf68ddac93b1146795122a))
+
+
+### Internal
+
+* **deps:** Bump @modelcontextprotocol/sdk from 1.27.1 to 1.32.0 ([#125](https://github.com/nam-hle/symantic/issues/125)) ([d6402fe](https://github.com/nam-hle/symantic/commit/d6402fe6465841389a2c82a523fea64c995b8ece))
+* **deps:** Bump zod from 3.25.76 to 4.6.6 ([#128](https://github.com/nam-hle/symantic/issues/128)) ([80a78bc](https://github.com/nam-hle/symantic/commit/80a78bca92000364153d05faf3bae512d9e9e272))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * @symantic/core bumped to 0.4.0
+
 ## [0.3.2](https://github.com/nam-hle/symantic/compare/v0.3.1...v0.3.2) (2026-06-13)
 
 
