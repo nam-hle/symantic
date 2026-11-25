@@ -22,6 +22,8 @@ export {
 } from "./render.js";
 export { planRename, isValidIdentifier } from "./edit/rename.js";
 export type { RenameRequest } from "./edit/rename.js";
+export { planMove } from "./edit/move.js";
+export type { MoveRequest } from "./edit/move.js";
 export { applyEditPlan } from "./edit/apply.js";
 export type { ApplyOptions, EditResult, ChangedFile } from "./edit/apply.js";
 export { EditConflictError, EditOverlapError, EditRefusedError, EditWriteError } from "./edit/errors.js";
