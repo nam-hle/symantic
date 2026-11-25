@@ -78,23 +78,24 @@ name-addressing buys — is in [docs/NAME-ADDRESSING.md](docs/NAME-ADDRESSING.md
 Commands group by intent: **`view`** (read code), **`find`** (locate / trace) and **`edit`** (change
 code), plus top-level `resolve` / `imports` / `exports` / `usage`.
 
-| Command                             | What you get                                                                       |
-| ----------------------------------- | ---------------------------------------------------------------------------------- |
-| `view outline <file>`               | structural table of contents: declarations (incl. nested) + re-exports             |
-| `view symbol <file>:Name`           | the exact source of one declaration                                                |
-| `view members <file>:Name`          | members of a class / interface / namespace                                         |
-| `view context <file>:Name`          | source + signature + callees + referenced types                                    |
-| `view body <file>:Name`             | statement-level skeleton of a function body                                        |
-| `view region <file>:start-end`      | an addressed line range                                                            |
-| `find def <file>:Name`              | all declaration sites (handles declaration merging)                                |
-| `find refs <file>:Name`             | usages, classified by kind (import / call / type-ref / read / write), paginated    |
-| `find impls <file>:Name`            | classes implementing an interface                                                  |
-| `find callers` / `callees`          | incoming / outgoing call hierarchy, bounded depth                                  |
-| `find symbol Name`                  | repo-wide search for a name (`--contains` for substring) → candidates              |
-| `imports <file>` / `exports <file>` | a file's import statements / transitive public surface (expands `export *`)        |
-| `resolve <file>:Name`               | resolve a qualified name → symbol or candidates                                    |
-| `usage <file>`                      | per-export reference counts of an entry (dead-code in one call)                    |
-| `edit rename <file>:Name --to New`  | rename a symbol everywhere the compiler would (writes files; `--dry-run` previews) |
+| Command                             | What you get                                                                              |
+| ----------------------------------- | ----------------------------------------------------------------------------------------- |
+| `view outline <file>`               | structural table of contents: declarations (incl. nested) + re-exports                    |
+| `view symbol <file>:Name`           | the exact source of one declaration                                                       |
+| `view members <file>:Name`          | members of a class / interface / namespace                                                |
+| `view context <file>:Name`          | source + signature + callees + referenced types                                           |
+| `view body <file>:Name`             | statement-level skeleton of a function body                                               |
+| `view region <file>:start-end`      | an addressed line range                                                                   |
+| `find def <file>:Name`              | all declaration sites (handles declaration merging)                                       |
+| `find refs <file>:Name`             | usages, classified by kind (import / call / type-ref / read / write), paginated           |
+| `find impls <file>:Name`            | classes implementing an interface                                                         |
+| `find callers` / `callees`          | incoming / outgoing call hierarchy, bounded depth                                         |
+| `find symbol Name`                  | repo-wide search for a name (`--contains` for substring) → candidates                     |
+| `imports <file>` / `exports <file>` | a file's import statements / transitive public surface (expands `export *`)               |
+| `resolve <file>:Name`               | resolve a qualified name → symbol or candidates                                           |
+| `usage <file>`                      | per-export reference counts of an entry (dead-code in one call)                           |
+| `edit rename <file>:Name --to New`  | rename a symbol everywhere the compiler would (writes files; `--dry-run` previews)        |
+| `edit move <file> --to <path>`      | move or rename a file and rewrite every import of it (writes files; `--dry-run` previews) |
 
 See [docs/VISION.md](docs/VISION.md) for full scope, [docs/DESIGN.md](docs/DESIGN.md) for
 architecture, [docs/PRINCIPLES.md](docs/PRINCIPLES.md) for the values that drive the roadmap,
@@ -102,7 +103,7 @@ architecture, [docs/PRINCIPLES.md](docs/PRINCIPLES.md) for the values that drive
 `edit` commands write the project files they change: the edit comes from the TypeScript language
 server (`tsc --lsp`, the same pinned binary), is checked against the files' content hashes, and is
 refused with `CONFLICT` (nothing written) when a file changed meanwhile. `--dry-run` returns the same
-result without writing. Move and import edits are planned. Multi-language is out of scope — TypeScript only.
+result without writing. Import edits are planned. Multi-language is out of scope — TypeScript only.
 
 ### symantic + grep
 

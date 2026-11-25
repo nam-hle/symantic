@@ -37,6 +37,7 @@ an **MCP server**, prefer its MCP tools over shelling out — same ops, same add
 | Find a symbol, file unknown — only know part of the name? | `symantic find symbol Foo --contains` (substring; your orientation entry point)            |
 | A file's imports / public surface?                        | `symantic imports <file>` · `symantic exports <file>`                                      |
 | Rename a symbol everywhere?                               | `symantic edit rename <file>:Name --to New` (`--dry-run` previews; never find-and-replace) |
+| Move or rename a file and fix its imports?                | `symantic edit move <file> --to <path>` (`--dry-run` previews; never `mv` plus sed)        |
 
 Rest, briefly: `view file` (whole file, lean; `--body` for each export's source), `view body`
 (statement skeleton of a function), `view region <file>:start-end`, `usage` (per-export
@@ -46,6 +47,9 @@ reference counts), `resolve` (qualified name → symbol or candidates). Flags: `
 included). On `CONFLICT` (exit 6) a file changed meanwhile and nothing was written: rerun it. A rename onto
 an existing name is refused (`VALIDATION_ERROR` lists the new compiler errors); a symbol renamed to its own
 name reports `unchanged`.
+
+`edit move` rewrites the importers and the moved file's own relative imports, then moves the file. An existing
+target is `CONFLICT` (exit 6); a source that is gone (the move already ran) is `NOT_FOUND` (exit 3).
 
 ## Addressing
 

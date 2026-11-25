@@ -10,7 +10,7 @@ import { dirname } from "node:path";
 import { existsSync } from "node:fs";
 
 import { defineCommand } from "citty";
-import { NS_SEP, planRename, createEngine, applyEditPlan, isValidIdentifier } from "@symantic/core";
+import { NS_SEP, planMove, planRename, createEngine, applyEditPlan, isValidIdentifier } from "@symantic/core";
 import type { EditResult, SymbolHandle, AsyncSymbolEngine } from "@symantic/core";
 import {
 	renderSource,
@@ -33,7 +33,7 @@ import { readVersion } from "./version.js";
 import { recordGain } from "./gain/track.js";
 import { runCli } from "./run-main.js";
 import { SymanticError } from "./errors.js";
-import { hashFiles, lastSegment, editFailure, identifierAt, renderRename } from "./edit.js";
+import { hashFiles, lastSegment, renderMove, editFailure, isFile, projectPath, identifierAt, renderRename } from "./edit.js";
 import { DEFAULT_LIMIT, slicePage, continuation } from "./paging.js";
 import type { Continuation, FlagValues } from "./paging.js";
 import { SHORT_KINDS, kindList, positiveInt, nonNegativeInt } from "./flags.js";
@@ -693,9 +693,59 @@ const editRename = defineCommand({
 	}
 });
 
+const editMove = defineCommand({
+	meta: { name: "move", description: "Move or rename a file and rewrite every import of it" },
+	args: { json, tsconfig, file: fileArg, to: toFlag("the new path of the file, relative to the project"), "dry-run": dryRun },
+	async run({ args }) {
+		await withEngine(args, async (e, tc) => {
+			const baseDir = dirname(tc);
+			const from = projectPath(baseDir, args.file);
+			const to = projectPath(baseDir, args.to);
+
+			if (from === undefined || to === undefined) {
+				const flag = from === undefined ? "<file>" : "--to";
+
+				throw new SymanticError("VALIDATION_ERROR", `${flag} must be a path inside the project, got "${from === undefined ? args.file : args.to}"`, {
+					context: { file: args.file, to: args.to, project: baseDir }
+				});
+			}
+
+			if (!isFile(baseDir, from)) {
+				throw new SymanticError("NOT_FOUND", `no such file: ${from}`, {
+					context: { file: from },
+					hint: "check the path (it may already have been moved); `symantic view outline <file>` reads a file of the project"
+				});
+			}
+
+			const emit = (result: EditResult): void => {
+				process.stdout.write(`${args.json === true ? JSON.stringify(result, null, 2) : renderMove(result, { from, to })}\n`);
+			};
+
+			if (from === to) {
+				emit({ changed: [], unchanged: true, dryRun: args["dry-run"] === true });
+
+				return;
+			}
+
+			try {
+				const plan = await planMove({ baseDir, from, to });
+				const result = applyEditPlan(plan, { baseDir, dryRun: args["dry-run"] === true });
+
+				if (!result.dryRun) {
+					await e.refreshIfStale();
+				}
+
+				emit(result);
+			} catch (error) {
+				throw editFailure(error, { file: from, to });
+			}
+		});
+	}
+});
+
 const edit = defineCommand({
-	meta: { name: "edit", description: "Change code: rename a symbol across the project" },
-	subCommands: { rename: editRename }
+	meta: { name: "edit", description: "Change code: rename a symbol or move a file across the project" },
+	subCommands: { move: editMove, rename: editRename }
 });
 
 /** Hidden daemon entry point — spawned detached by daemonEngine, never typed by hand. */
