@@ -22,12 +22,20 @@ symantic find callers src/foo.ts:Bar          # incoming call hierarchy
 symantic gain                                  # estimated token savings to date
 symantic edit rename src/foo.ts:Bar --to Baz  # rename across the project, writes the files
 symantic edit rename src/foo.ts:Bar --to Baz --dry-run   # same result, nothing written
+symantic edit move src/foo.ts --to src/lib/foo.ts   # move a file, rewrite every import of it
 ```
 
 `edit` is the only group that writes. `edit rename` returns `{ dryRun, changed: [{ path, edits }], unchanged? }`;
 renaming a symbol to its own name reports `unchanged` with exit 0. A rename that would introduce compiler
 errors (a name collision) is refused with `VALIDATION_ERROR` listing them, and nothing is written; a rename
 that shadows an outer name without a compile error is not detected.
+
+`edit move <file> --to <path>` (both project-relative) rewrites the imports of every importer and the moved
+file's own relative imports, then moves the file, creating the target folder. It returns
+`{ dryRun, changed: [{ path, edits }], moved: [{ from, to }] }`; `changed` names the moved file by its old
+path. An existing target is `CONFLICT` (exit 6) and a missing source is `NOT_FOUND` (exit 3), so running the same
+move twice fails cleanly. If a write or the move fails, the files already written are put back
+(`WRITE_FAILED`, exit 5). Unlike `edit rename`, the result is not re-checked for compiler errors.
 
 ## JSON output
 

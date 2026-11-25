@@ -100,7 +100,16 @@ const HELP: Record<string, CommandHelp> = {
 		json: LIST(CALL_NODE)
 	},
 	edit: {
-		examples: ["symantic edit rename src/a.ts:Foo --to Bar", "symantic edit rename src/a.ts:Foo --to Bar --dry-run"]
+		examples: ["symantic edit rename src/a.ts:Foo --to Bar", "symantic edit move src/a.ts --to src/lib/a.ts --dry-run"]
+	},
+	"edit move": {
+		examples: [
+			"symantic edit move src/a.ts --to src/lib/a.ts",
+			"symantic edit move src/a.ts --to src/b.ts --dry-run",
+			"symantic edit move src/a.ts --to src/lib/a.ts --json"
+		],
+		changes: "Changes: project files (rewrites the imports, then moves the file; --dry-run writes nothing)",
+		json: "{ dryRun, changed: [{ path, edits }], moved: [{ from, to }], unchanged? }"
 	},
 	"edit rename": {
 		examples: [

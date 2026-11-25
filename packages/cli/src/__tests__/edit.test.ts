@@ -6,7 +6,7 @@ import { it, expect, describe, afterEach } from "vitest";
 import { contentHash, EditConflictError, EditOverlapError, EditRefusedError, EditWriteError } from "@symantic/core";
 
 import { SymanticError, exitClassOf, toEnvelope } from "../errors.js";
-import { hashFiles, lastSegment, editFailure, identifierAt, renderRename } from "../edit.js";
+import { isFile, hashFiles, lastSegment, renderMove, editFailure, projectPath, identifierAt, renderRename } from "../edit.js";
 
 describe("address reading", () => {
 	it("reads the last name segment", () => {
@@ -37,6 +37,58 @@ describe("renderRename", () => {
 		expect(renderRename({ changed: [], dryRun: false, unchanged: true }, { from: "foo", to: "run" })).toBe(
 			"Unchanged: renaming foo to run changes nothing"
 		);
+	});
+});
+
+describe("renderMove", () => {
+	it("heads with the move and lists each changed file", () => {
+		const changed = [{ path: "src/a.ts", edits: 2 }];
+
+		expect(renderMove({ changed, dryRun: false }, { from: "src/a.ts", to: "src/b.ts" })).toBe(
+			"Moved src/a.ts to src/b.ts, rewriting imports in 1 file\n  src/a.ts  2 edits"
+		);
+		expect(renderMove({ changed, dryRun: true }, { from: "src/a.ts", to: "src/b.ts" })).toContain("Would move");
+		expect(renderMove({ changed: [], dryRun: false, unchanged: true }, { from: "a.ts", to: "a.ts" })).toBe("Unchanged: a.ts is already at a.ts");
+	});
+});
+
+describe("projectPath", () => {
+	it("normalizes a path inside the project and rejects one that leaves it", () => {
+		const base = join(tmpdir(), "proj");
+
+		expect(projectPath(base, "./src/../src/a.ts")).toBe("src/a.ts");
+		expect(projectPath(base, "../a.ts")).toBeUndefined();
+		expect(projectPath(base, join(tmpdir(), "elsewhere", "a.ts"))).toBeUndefined();
+		expect(projectPath(base, ".")).toBeUndefined();
+	});
+
+	it("accepts an absolute path inside the project", () => {
+		const base = join(tmpdir(), "proj");
+
+		expect(projectPath(base, join(base, "src", "a.ts"))).toBe("src/a.ts");
+	});
+});
+
+describe("isFile", () => {
+	it("is true for a file, false for a folder or a missing path", () => {
+		const dir = mkdtempSync(join(tmpdir(), "symantic-isfile-"));
+		writeFileSync(join(dir, "a.ts"), "x\n");
+
+		try {
+			expect(isFile(dir, "a.ts")).toBe(true);
+			expect(isFile(dir, ".")).toBe(false);
+			expect(isFile(dir, "gone.ts")).toBe(false);
+		} finally {
+			rmSync(dir, { force: true, recursive: true });
+		}
+	});
+});
+
+describe("editFailure conflict hints", () => {
+	it("names the taken target, not drift, when a move target exists", () => {
+		const error = editFailure(new EditConflictError("move target already exists: src/b.ts; nothing was written", ["src/b.ts"]), {});
+
+		expect(toEnvelope(error as SymanticError).hint).toContain("target path is taken");
 	});
 });
 
