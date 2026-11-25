@@ -6,6 +6,7 @@
 import type {
 	Member,
 	CallNode,
+	Position,
 	Candidate,
 	ImportInfo,
 	FileOutline,
@@ -38,6 +39,8 @@ export interface SymbolEngine {
 	symbolContext(symbol: SymbolHandle): SymbolContext;
 	resolveSymbol(qualifiedName: string): ResolveResult;
 	findDefinition(symbol: SymbolHandle): SymbolHandle[];
+	/** Where the name identifier of the symbol's first declaration sits; undefined when it has none (anonymous). */
+	symbolNamePosition(symbol: SymbolHandle): Position | undefined;
 	findImplementations(symbol: SymbolHandle): SymbolHandle[];
 	searchSymbol(name: string, options?: SearchOptions): Candidate[];
 	readRegion(file: string, startLine: number, endLine: number): RegionResult;

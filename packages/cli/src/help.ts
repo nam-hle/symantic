@@ -99,6 +99,18 @@ const HELP: Record<string, CommandHelp> = {
 		examples: ["symantic find callees src/a.ts:run", "symantic find callees src/a.ts:run --depth 3"],
 		json: LIST(CALL_NODE)
 	},
+	edit: {
+		examples: ["symantic edit rename src/a.ts:Foo --to Bar", "symantic edit rename src/a.ts:Foo --to Bar --dry-run"]
+	},
+	"edit rename": {
+		examples: [
+			"symantic edit rename src/a.ts:Foo --to Bar",
+			"symantic edit rename src/a.ts:Foo::bar --to run --dry-run",
+			"symantic edit rename src/a.ts:Foo --to Bar --json"
+		],
+		changes: "Changes: project files (writes the edited files; --dry-run writes nothing)",
+		json: "{ dryRun, changed: [{ path, edits }], moved?: [{ from, to }], unchanged? }"
+	},
 	gain: {
 		examples: ["symantic gain", "symantic gain --by-project", "symantic gain --history"],
 		changes: "Changes: nothing. Reads the gain ledger (~/.symantic/gain.jsonl); it does not add a line for itself.",
@@ -112,7 +124,9 @@ const EXIT_CODE_TABLE = [
 	"  0  success (a query that matches nothing is still success)",
 	"  1  unexpected error",
 	"  2  usage error: unknown flag or command, bad value, ambiguous address",
-	"  3  not found: the address, file or project does not exist"
+	"  3  not found: the address, file or project does not exist",
+	"  5  write failed: a file could not be written; earlier writes were restored",
+	"  6  conflict: a file changed while an edit was computed; nothing was written"
 ].join("\n");
 
 const section = (title: string, lines: string[]): string => [title, "", ...lines.map((line) => `  ${line}`)].join("\n");
